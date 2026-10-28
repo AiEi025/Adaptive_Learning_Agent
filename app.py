@@ -15,17 +15,17 @@ Adapta - مربی تطبیقی (هر موضوعی)
   8) مسیریابی
 """
 
-import asyncio
 import copy
-import hashlib
 import html as html_lib
+import logging
 import re
-import secrets
-import threading
 import uuid
 from datetime import datetime
 
 import streamlit as st
+
+from async_runner import AsyncRunner
+from db.crud import Crud
 
 # ============================================================
 # 1) PAGE CONFIG
@@ -150,13 +150,12 @@ def html(s: str) -> str:
 
 
 # ============================================================
-# 3) ASYNC RUNNER + HOOKS
+# 3) RUNNER + CRUD + DEMO BACKEND
 # ============================================================
-# Streamlit هر rerun را sync اجرا می‌کند؛ یک event loop پس‌زمینه می‌سازیم
-# تا pool اتصال asyncpg بین rerunها زنده بماند (مثل نمونه‌ی خودت).
-#
-# بخش HOOKS فعلاً در حافظه است تا رابط همین الان اجرا شود.
-# روی هر متد نوشته‌ام چه چیزی باید جایگزینش شود.
+# - AsyncRunner (async_runner.py): فقط پل بین Streamlit و کدهای async.
+# - Crud (crud.py): ورود و ثبت‌نام واقعی با PostgreSQL.
+# - DemoBackend: چت، Agent و حافظه فعلاً نمایشی و در حافظه‌اند؛
+#   روی هر متد نوشته‌ام چه چیزی باید جایگزینش شود (TODO).
 #
 # معماری حافظه (پیشنهاد):
 #   - پیام‌های هر گفتگو  : LangGraph checkpointer (thread_id)  ← مثل نمونه‌ات
@@ -167,46 +166,10 @@ def html(s: str) -> str:
 #     (SQL، Python، هر چیز دیگر) و مدل خودش تشخیص می‌دهد.
 
 
-class AsyncRunner:
+class DemoBackend:
     def __init__(self):
-        self.loop = asyncio.new_event_loop()
-        threading.Thread(target=self._run_loop, daemon=True).start()
-        # --- داده‌ی نمایشی (TODO: حذف و وصل به PostgreSQL) ---
-        self.users, self.chats, self.messages, self.memory = {}, {}, {}, {}
-
-    def _run_loop(self):
-        asyncio.set_event_loop(self.loop)
-        self.loop.run_forever()
-
-    def run(self, coro, timeout: float = 180):
-        return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout)
-
-    # ---------------- ورود و ثبت‌نام ----------------
-    @staticmethod
-    def _hash(password: str, salt: bytes) -> str:
-        # TODO: در نسخه‌ی واقعی از bcrypt یا argon2 استفاده کن.
-        return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 120_000).hex()
-
-    async def register_user(self, username: str, password: str) -> dict:
-        """TODO(db): INSERT INTO users(username, password_hash, ...).
-        username را lower کن و UNIQUE بگذار؛ اگر تکراری بود ValueError('username_taken')."""
-        key = username.strip().lower()
-        if key in self.users:
-            raise ValueError("username_taken")
-        salt = secrets.token_bytes(16)
-        self.users[key] = {"id": str(uuid.uuid4()), "username": username.strip(),
-                           "salt": salt, "pw": self._hash(password, salt),
-                           "created_at": datetime.now()}
-        return {"id": self.users[key]["id"], "username": self.users[key]["username"],
-                "created_at": self.users[key]["created_at"]}
-
-    async def authenticate_user(self, username: str, password: str):
-        """TODO(db): SELECT ... WHERE username = lower($1) و verify رمز.
-        dict کاربر یا None برگردان."""
-        u = self.users.get(username.strip().lower())
-        if u and secrets.compare_digest(u["pw"], self._hash(password, u["salt"])):
-            return {"id": u["id"], "username": u["username"], "created_at": u["created_at"]}
-        return None
+        # TODO: حذف و وصل به PostgreSQL / checkpointer / store
+        self.chats, self.messages, self.memory = {}, {}, {}
 
     # ---------------- گفتگوها ----------------
     async def list_chats(self, user_id: str) -> list:
@@ -289,6 +252,44 @@ def run(coro):
     return runner.run(coro)
 
 
+@st.cache_resource
+def get_crud() -> Crud:
+    async def _make():
+        c = Crud()
+        await c.open()  # pool روی loop پس‌زمینه باز می‌شود
+        return c
+
+    return runner.run(_make())
+
+
+@st.cache_resource
+def get_backend() -> DemoBackend:
+    return DemoBackend()
+
+
+crud = get_crud()
+backend = get_backend()
+
+
+logger = logging.getLogger("adapta")
+
+
+def show_db_error():
+    """پیام ساده به کاربر؛ خطای واقعی (traceback) در ترمینال چاپ می‌شود.
+    باید داخل بلاک except صدا زده شود."""
+    logger.exception("خطای دیتابیس / Crud")
+    st.error("مشکلی در انجام عملیات پیش آمد. کمی بعد دوباره امتحان کن.")
+
+
+def to_app_user(row: dict) -> dict:
+    """ستون‌های جدول users را به قالبی که رابط انتظار دارد تبدیل می‌کند."""
+    return {
+        "id": str(row.get("id", row["user_name"])),
+        "username": row["user_name"],
+        "created_at": row.get("created_at"),
+    }
+
+
 # ============================================================
 # 4) STATE + HELPERS
 # ============================================================
@@ -322,7 +323,7 @@ def logout():
 
 
 def refresh_chats(user):
-    rows = run(runner.list_chats(user["id"]))
+    rows = run(backend.list_chats(user["id"]))
     st.session_state.chats = {
         str(r["thread_id"]): {"title": r["title"], "created_at": r["created_at"],
                               "updated_at": r["updated_at"]}
@@ -340,7 +341,7 @@ def create_new_chat(user, force: bool = False):
         st.session_state.view = "chat"
         return
     chat_id = str(uuid.uuid4())
-    run(runner.create_chat(user["id"], chat_id, DEFAULT_CHAT_TITLE))
+    run(backend.create_chat(user["id"], chat_id, DEFAULT_CHAT_TITLE))
     st.session_state.messages[chat_id] = []
     st.session_state.active_chat_id = chat_id
     st.session_state.chats_dirty = True
@@ -361,13 +362,13 @@ def ensure_active_chat(user):
 def get_messages(chat_id: str) -> list:
     cache = st.session_state.messages
     if chat_id not in cache:
-        cache[chat_id] = run(runner.get_chat_messages(chat_id))
+        cache[chat_id] = run(backend.get_chat_messages(chat_id))
     return cache[chat_id]
 
 
 def get_learner(user) -> list:
     if st.session_state.learner_dirty:
-        st.session_state.learner = run(runner.get_learner_memory(user["id"]))
+        st.session_state.learner = run(backend.get_learner_memory(user["id"]))
         st.session_state.learner_dirty = False
     return st.session_state.learner
 
@@ -425,11 +426,15 @@ def render_auth():
                 if not username.strip() or not password:
                     st.error("نام کاربری و رمز عبور را وارد کن.")
                 else:
-                    user = run(runner.authenticate_user(username, password))
-                    if user:
-                        sign_in(user)
+                    try:
+                        row = run(crud.authenticate(username, password))
+                    except Exception:
+                        show_db_error()
                     else:
-                        st.error("نام کاربری یا رمز عبور درست نیست. اگر حساب نداری از تب ثبت‌نام بساز.")
+                        if row:
+                            sign_in(to_app_user(row))
+                        else:
+                            st.error("نام کاربری یا رمز عبور درست نیست. اگر حساب نداری از تب ثبت‌نام بساز.")
 
         with tab_register:
             with st.form("register_form"):
@@ -448,11 +453,13 @@ def render_auth():
                     st.error(e)
                 if not errors:
                     try:
-                        user = run(runner.register_user(username, password))
+                        row = run(crud.register(username, password))
                     except ValueError:
                         st.error("این نام کاربری قبلاً گرفته شده؛ نام دیگری انتخاب کن.")
+                    except Exception:
+                        show_db_error()
                     else:
-                        sign_in(user)  # ثبت‌نام موفق ← مستقیم وارد چت
+                        sign_in(to_app_user(row))  # ثبت‌نام موفق ← مستقیم وارد چت
 
 
 # ============================================================
@@ -493,11 +500,12 @@ def render_sidebar(user):
                     st.session_state.active_chat_id = chat_id
                     st.session_state.view = "chat"
                     st.rerun()
-            with c_menu, st.popover("⋮", use_container_width=True):
+            with c_menu:
+                with st.popover("⋮", use_container_width=True):
                     st.caption("این گفتگو برای همیشه حذف می‌شود.")
                     if st.button("حذف گفتگو", key=f"del_{chat_id}", type="primary",
                                  icon=":material/delete:", use_container_width=True):
-                        run(runner.delete_chat(user["id"], chat_id))
+                        run(backend.delete_chat(user["id"], chat_id))
                         st.session_state.messages.pop(chat_id, None)
                         st.session_state.chats_dirty = True
                         if chat_id == st.session_state.active_chat_id:
@@ -574,9 +582,9 @@ def render_chat(user):
         try:
             with st.spinner("Adapta در حال فکر کردن است…"):
                 if first_message:
-                    new_title = run(runner.generate_title(prompt))
-                    run(runner.rename_chat(chat_id, new_title))
-                answer = run(runner.run_agent(user, chat_id, prompt)).strip()
+                    new_title = run(backend.generate_title(prompt))
+                    run(backend.rename_chat(chat_id, new_title))
+                answer = run(backend.run_agent(user, chat_id, prompt)).strip()
             if not answer:
                 answer = "پاسخی دریافت نشد. پیامت را دوباره بفرست."
             st.markdown(answer)
@@ -591,7 +599,7 @@ def render_chat(user):
         return
 
     messages.append({"role": "assistant", "content": answer})
-    run(runner.update_chat_activity(chat_id))
+    run(backend.update_chat_activity(chat_id))
     st.session_state.learner_dirty = True  # Agent ممکن است حافظه را به‌روز کرده باشد
 
     if first_message:
@@ -600,8 +608,85 @@ def render_chat(user):
         st.rerun()
 
 
+def flash(kind: str, message: str):
+    """پیام موقت که بعد از st.rerun() یک بار نمایش داده می‌شود (success / error / info)."""
+    st.session_state.flash = (kind, message)
+
+
+def render_account_settings(user):
+    # nonce: بعد از موفقیت عوض می‌شود تا فرم‌ها (به‌خصوص رمزها) خالی دوباره ساخته شوند.
+    n = st.session_state.get("settings_nonce", 0)
+    st.markdown("#### تنظیمات حساب")
+    tab_name, tab_pass = st.tabs(["تغییر نام کاربری", "تغییر رمز عبور"])
+
+    with tab_name:
+        with st.form(f"rename_form_{n}"):
+            new_name = st.text_input(
+                "نام کاربری جدید", key=f"new_username_{n}",
+                help="۳ تا ۲۰ کاراکتر: حرف انگلیسی، عدد و _",
+            )
+            submitted = st.form_submit_button("ذخیره نام کاربری", type="primary")
+        if submitted:
+            new_name = new_name.strip()
+            if not USERNAME_RE.match(new_name):
+                st.error("نام کاربری باید ۳ تا ۲۰ کاراکتر و فقط شامل حرف انگلیسی، عدد و _ باشد.")
+            elif new_name.lower() == user["username"].lower():
+                st.info("این همان نام کاربری فعلی توست.")
+            else:
+                try:
+                    current = run(crud.update_profile(user["username"], "user_name", new_name))
+                except ValueError:
+                    st.error("این نام کاربری قبلاً گرفته شده؛ نام دیگری انتخاب کن.")
+                except LookupError:
+                    st.error("حساب پیدا نشد. دوباره وارد شو.")
+                except Exception:
+                    show_db_error()
+                else:
+                    # id عوض نمی‌شود؛ فقط نام نمایشی/ورود
+                    st.session_state.user = {**user, "username": current}
+                    st.session_state.settings_nonce = n + 1
+                    flash("success", f"نام کاربری به «{current}» تغییر کرد.")
+                    st.rerun()
+
+    with tab_pass:
+        with st.form(f"password_form_{n}"):
+            cur_pw = st.text_input("رمز عبور فعلی", type="password", key=f"pw_cur_{n}")
+            new_pw = st.text_input("رمز عبور جدید", type="password", key=f"pw_new_{n}",
+                                   help="حداقل ۸ کاراکتر")
+            conf_pw = st.text_input("تکرار رمز عبور جدید", type="password", key=f"pw_conf_{n}")
+            submitted = st.form_submit_button("تغییر رمز عبور", type="primary")
+        if submitted:
+            if not cur_pw or not new_pw or not conf_pw:
+                st.error("هر سه فیلد را پر کن.")
+            elif len(new_pw) < 8:
+                st.error("رمز عبور جدید باید حداقل ۸ کاراکتر باشد.")
+            elif new_pw != conf_pw:
+                st.error("تکرار رمز عبور جدید با آن یکسان نیست.")
+            elif new_pw == cur_pw:
+                st.error("رمز جدید باید با رمز فعلی فرق داشته باشد.")
+            else:
+                try:
+                    valid = run(crud.verify_password(user["username"], cur_pw))
+                    if valid:
+                        run(crud.update_profile(user["username"], "user_pass", new_pw))
+                except LookupError:
+                    st.error("حساب پیدا نشد. دوباره وارد شو.")
+                except Exception:
+                    show_db_error()
+                else:
+                    if not valid:
+                        st.error("رمز عبور فعلی درست نیست.")
+                    else:
+                        st.session_state.settings_nonce = n + 1
+                        flash("success", "رمز عبور تغییر کرد.")
+                        st.rerun()
+
+
 def render_profile(user):
     st.markdown("### پروفایل")
+    flash_msg = st.session_state.pop("flash", None)
+    if flash_msg:
+        getattr(st, flash_msg[0])(flash_msg[1])
     c_av, c_info = st.columns([1, 5], vertical_alignment="center")
     c_av.markdown(
         html(f'<div class="avatar">{html_lib.escape(user["username"][:1].upper())}</div>'),
@@ -630,11 +715,14 @@ def render_profile(user):
             with st.popover("پاک‌کردن این موضوع", icon=":material/delete:"):
                 st.caption("Adapta دیگر سطح و مباحث این موضوع را به یاد نخواهد داشت.")
                 if st.button("پاک شود", key=f"reset_{item['subject']}", type="primary"):
-                    run(runner.reset_learner_memory(user["id"], item["subject"]))
+                    run(backend.reset_learner_memory(user["id"], item["subject"]))
                     st.session_state.learner_dirty = True
                     st.rerun()
 
-    st.write("")
+    st.divider()
+    render_account_settings(user)
+
+    st.divider()
     if st.button("خروج از حساب", icon=":material/logout:", key="profile_logout"):
         logout()
 

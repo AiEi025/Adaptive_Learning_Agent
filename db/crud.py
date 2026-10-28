@@ -1,6 +1,5 @@
 import asyncio
 import os
-from datetime import UTC, datetime
 from typing import Literal
 
 from dotenv import load_dotenv
@@ -48,10 +47,6 @@ class Crud:
         return user_name.strip().lower()
 
     @staticmethod
-    def _now() -> datetime:
-        return datetime.now(UTC).replace(tzinfo=None)
-
-    @staticmethod
     def _public(user: dict | None) -> dict | None:
         """هش رمز هرگز از Crud بیرون نمی‌رود."""
         if user is None:
@@ -68,7 +63,8 @@ class Crud:
             try:
                 # TODO: اسم متد و ترتیب آرگومان‌ها را مطابق PasswordHasher خودت بگذار
                 return bool(self._pass_hash.verify_password(password, hashed))
-            except Exception:
+            except ValueError:
+                # هش خراب/نامعتبر؛ خطاهای برنامه‌نویسی (مثل TypeError) عمداً پنهان نمی‌شوند
                 return False
 
         return await asyncio.to_thread(check)
@@ -127,6 +123,14 @@ class Crud:
 
         return self._public(user)
 
+    async def verify_password(self, user_name: str, password: str) -> bool:
+        """فقط درستی رمز را چک می‌کند (بدون به‌روزرسانی last_login).
+        برای تأیید رمز فعلی قبل از تغییر رمز استفاده می‌شود."""
+        user = await self.get_user(user_name)
+        if user is None:
+            return False
+        return await self._verify(password, user["user_pass"])
+
     async def authenticate(self, user_name: str, password: str) -> dict | None:
         """
         اگر نام کاربری و رمز درست بود، ردیف کاربر (بدون هش رمز) و در غیر
@@ -156,7 +160,6 @@ class Crud:
         برمی‌گرداند (بعد از تغییر نام، همان نام جدید است).
         """
         user_name = self._norm(user_name)
-        now = self._now()
 
         if update_col in ("user_name", "user_pass") and not param_change:
             raise ValueError(f"param_change برای {update_col} الزامی است")
@@ -165,27 +168,27 @@ class Crud:
             new_value = self._norm(param_change)
             query = """
                 UPDATE public.users
-                SET user_name = %s, updated_at = %s
+                SET user_name = %s, updated_at = now()
                 WHERE user_name = %s
             """
-            params = (new_value, now, user_name)
+            params = (new_value, user_name)
 
         elif update_col == "user_pass":
             hashed = await self._hash(param_change)
             query = """
                 UPDATE public.users
-                SET user_pass = %s, updated_at = %s
+                SET user_pass = %s, updated_at = now()
                 WHERE user_name = %s
             """
-            params = (hashed, now, user_name)
+            params = (hashed, user_name)
 
         elif update_col == "last_login":
             query = """
                 UPDATE public.users
-                SET last_login = %s
+                SET last_login = now()
                 WHERE user_name = %s
             """
-            params = (now, user_name)
+            params = (user_name,)
 
         else:
             raise ValueError(f"update_col نامعتبر: {update_col!r}")
