@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adapta — Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ===== TOKENS ===== */
+  :root {
+    /* Olive */
+    --olive-50:  #FAF8EC;
+    --olive-100: #F2EFD2;
+    --olive-200: #E6E0A8;
+    --olive-300: #D8CF7A;
+    --olive-400: #C8BE60;
+    --olive-500: #BCB957;
+    --olive-600: #9F9A3E;
+    --olive-700: #85803A;
+    --olive-800: #6B6731;
+    --olive-900: #565329;
+    --olive-950: #2E2C15;
+
+    /* Slate */
+    --slate-50:  #F6F7FA;
+    --slate-100: #ECEEF3;
+    --slate-200: #D9DCE4;
+    --slate-300: #BBBFCB;
+    --slate-400: #8B90A0;
+    --slate-500: #6B7080;
+    --slate-600: #555A68;
+    --slate-700: #444753;
+    --slate-800: #363845;
+    --slate-900: #292B35;
+    --slate-950: #1A1B22;
+
+    /* Neutrals */
+    --bg:         #FAF9F6;
+    --surface:    #FFFFFF;
+    --surface-2:  #F3F2EE;
+    --border:     #E5E3DD;
+    --text:       #444753;
+    --text-muted: #8B8993;
+    --heading:    #2F313D;
+
+    /* Semantic */
+    --success:    #5A9D5A;
+    --success-bg: #EEF6EE;
+    --warning:    #E0A33C;
+    --warning-bg: #FCF3E1;
+    --error:      #D9544C;
+    --error-bg:   #FBEBEA;
+    --info:       #5C7CFA;
+    --info-bg:    #EAEEFB;
+
+    /* Accents */
+    --accent-indigo: #5B5FA5;
+    --accent-amber:  #D4A853;
+    --accent-olive:  #9BB85C;
+    --accent-teal:   #4A9A96;
+    --accent-rose:   #B8577A;
+
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
+    --shadow-sm: 0 1px 2px rgba(68, 71, 83, 0.06);
+    --shadow-md: 0 6px 20px -6px rgba(68, 71, 83, 0.12);
+    --shadow-lg: 0 20px 40px -20px rgba(107, 103, 49, 0.18);
+  }
+
+  /* ===== BASE ===== */
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, .mono {
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.82em;
+    direction: ltr;
+    display: inline-block;
+  }
+  h1, h2, h3, h4 { color: var(--heading); font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 1.6rem; margin-bottom: 0.4rem; }
+  h3 { font-size: 1.1rem; margin: 2rem 0 1rem; color: var(--slate-600); font-weight: 600; }
+  p  { margin: 0.3rem 0 1rem; }
+  a  { color: var(--olive-800); text-decoration: none; }
+  a:hover { color: var(--olive-700); }
+
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  section { padding: 56px 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+  .section-desc { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 2rem; max-width: 640px; }
+
+  /* ===== HERO ===== */
+  .hero {
+    background: linear-gradient(135deg, var(--olive-500) 0%, var(--olive-800) 100%);
+    color: #fff;
+    padding: 80px 24px 60px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(255,255,255,0.18), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(46,44,21,0.25), transparent 50%);
+    pointer-events: none;
+  }
+  .hero-content { position: relative; }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-size: 0.75rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    backdrop-filter: blur(8px);
+  }
+  .hero h1 {
+    color: #fff;
+    font-size: 4rem;
+    font-weight: 800;
+    letter-spacing: -2px;
+    margin: 0;
+    line-height: 1;
+  }
+  .hero p {
+    color: rgba(255,255,255,0.85);
+    font-size: 1.05rem;
+    margin-top: 12px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    font-weight: 300;
+  }
+  .hero-swatches {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 32px;
+  }
+  .hero-swatch {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.5);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+
+  /* ===== NAV ===== */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(250, 249, 246, 0.9);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 0;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .nav-inner {
+    display: flex;
+    gap: 8px;
+    padding: 0 24px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  .nav a {
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    color: var(--slate-600);
+    transition: all 0.2s;
+    font-weight: 500;
+  }
+  .nav a:hover {
+    background: var(--olive-100);
+    color: var(--olive-800);
+  }
+
+  /* ===== BRAND CARDS ===== */
+  .brand-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .brand-card {
+    border-radius: var(--radius-xl);
+    padding: 32px;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-shadow: var(--shadow-md);
+    position: relative;
+    overflow: hidden;
+  }
+  .brand-card.olive {
+    background: var(--olive-500);
+    color: #2E2C15;
+  }
+  .brand-card.slate {
+    background: var(--slate-700);
+    color: #E5E3DD;
+  }
+  .brand-card h3 { font-size: 1.6rem; margin: 0; }
+  .brand-card .tag { font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; }
+  .brand-card .hex { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 500; direction: ltr; text-align: left; }
+  .brand-card .role { font-size: 0.9rem; opacity: 0.85; }
+
+  /* ===== SCALE GRID ===== */
+  .scale-grid {
+    display: grid;
+    grid-template-columns: repeat(11, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  @media (max-width: 900px) {
+    .scale-grid { grid-template-columns: repeat(6, 1fr); }
+  }
+  .swatch {
+    aspect-ratio: 1;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(0,0,0,0.04);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    transition: transform 0.15s, box-shadow 0.15s;
+    cursor: default;
+    position: relative;
+  }
+  .swatch:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: var(--shadow-md);
+    z-index: 2;
+  }
+  .swatch .name { font-family: 'JetBrains Mono', monospace; direction: ltr; text-align: left; opacity: 0.9; }
+  .swatch .hex  { font-family: 'JetBrains Mono', monospace; direction: ltr; text-align: left; font-weight: 400; opacity: 0.75; font-size: 0.65rem; }
+
+  /* ===== NEUTRALS ===== */
+  .neutral-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+  }
+  .neutral-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .neutral-swatch {
+    height: 90px;
+    border-bottom: 1px solid var(--border);
+  }
+  .neutral-meta { padding: 10px 14px; }
+  .neutral-meta .name { font-weight: 600; color: var(--heading); font-size: 0.85rem; }
+  .neutral-meta .hex  { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); direction: ltr; }
+
+  /* ===== SEMANTIC ===== */
+  .semantic-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .semantic-card {
+    border-radius: var(--radius-md);
+    padding: 20px;
+    border: 1px solid;
+  }
+  .semantic-card .icon { font-size: 1.4rem; margin-bottom: 8px; }
+  .semantic-card .title { font-weight: 700; margin-bottom: 4px; }
+  .semantic-card .hex { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; opacity: 0.85; direction: ltr; }
+  .semantic-card.success { background: var(--success-bg); border-color: #CFE3CF; color: #3D6E3D; }
+  .semantic-card.warning { background: var(--warning-bg); border-color: #F1DCA8; color: #8A5F12; }
+  .semantic-card.error   { background: var(--error-bg);   border-color: #EFC8C4; color: #A63832; }
+  .semantic-card.info    { background: var(--info-bg);    border-color: #C8D2F5; color: #364AB8; }
+
+  /* ===== ACCENTS ===== */
+  .accent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+  }
+  .accent-card {
+    border-radius: var(--radius-md);
+    padding: 20px;
+    color: #fff;
+    box-shadow: var(--shadow-md);
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .accent-card .label { font-weight: 600; font-size: 0.9rem; }
+  .accent-card .hex { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; opacity: 0.85; direction: ltr; text-align: left; }
+
+  /* ===== COMPONENTS ===== */
+  .component-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    box-shadow: var(--shadow-sm);
+  }
+  .panel h4 { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
+  .component-row { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  /* ===== BUTTONS ===== */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 22px;
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.9rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: var(--olive-800);
+    color: #fff;
+  }
+  .btn-primary:hover { background: var(--olive-700); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  .btn-brand {
+    background: var(--olive-500);
+    color: var(--olive-950);
+  }
+  .btn-brand:hover { background: var(--olive-400); transform: translateY(-1px); }
+  .btn-secondary {
+    background: var(--slate-700);
+    color: #fff;
+  }
+  .btn-secondary:hover { background: var(--slate-800); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--olive-800);
+    border-color: var(--border);
+  }
+  .btn-ghost:hover { background: var(--olive-50); border-color: var(--olive-300); }
+  .btn-danger { background: var(--error); color: #fff; }
+  .btn-danger:hover { background: #C4453D; }
+
+  /* ===== FORM ===== */
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--slate-600);
+    margin-bottom: 6px;
+  }
+  .field input {
+    width: 100%;
+    padding: 11px 14px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--slate-200);
+    background: var(--surface-2);
+    font-family: inherit;
+    font-size: 0.92rem;
+    color: var(--text);
+    transition: all 0.15s;
+    outline: none;
+  }
+  .field input:focus {
+    border-color: var(--olive-500);
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(188, 185, 87, 0.18);
+  }
+  .field input::placeholder { color: var(--slate-400); }
+
+  /* ===== ALERTS ===== */
+  .alert {
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    font-size: 0.88rem;
+    margin-bottom: 10px;
+    border: 1px solid;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .alert-success { background: var(--success-bg); border-color: #CFE3CF; color: #3D6E3D; }
+  .alert-warning { background: var(--warning-bg); border-color: #F1DCA8; color: #8A5F12; }
+  .alert-error   { background: var(--error-bg);   border-color: #EFC8C4; color: #A63832; }
+  .alert-info    { background: var(--info-bg);    border-color: #C8D2F5; color: #364AB8; }
+
+  /* ===== STAT CARD (برای داشبورد Adapta) ===== */
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .stat-card {
+    background: linear-gradient(135deg, var(--olive-50) 0%, var(--olive-100) 100%);
+    border: 1px solid var(--olive-200);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+  }
+  .stat-card .label { font-size: 0.72rem; color: var(--olive-800); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .stat-card .value { font-size: 1.6rem; font-weight: 800; color: var(--slate-900); line-height: 1; }
+
+  /* ===== LOGIN MOCKUP ===== */
+  .login-wrap {
+    background: linear-gradient(180deg, var(--bg) 0%, var(--surface-2) 100%);
+    border-radius: var(--radius-xl);
+    padding: 40px 20px;
+    border: 1px solid var(--border);
+  }
+  .login-card {
+    max-width: 380px;
+    margin: 0 auto;
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: 40px 32px 32px;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .login-logo {
+    display: inline-block;
+    font-size: 2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--olive-500) 0%, var(--olive-800) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -1px;
+    margin-bottom: 4px;
+  }
+  .login-tag {
+    font-size: 0.7rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 28px;
+  }
+  .login-card h3 { font-size: 1.1rem; margin: 0 0 22px; color: var(--heading); font-weight: 700; }
+  .login-card .field { text-align: right; }
+  .login-card .btn-primary { width: 100%; padding: 12px; font-size: 0.95rem; margin-top: 8px; }
+  .login-footer { font-size: 0.75rem; color: var(--text-muted); margin-top: 22px; }
+  .login-footer a { color: var(--olive-800); font-weight: 600; }
+
+  /* ===== DARK MODE PREVIEW ===== */
+  .dark-preview {
+    background: var(--slate-950);
+    border-radius: var(--radius-xl);
+    padding: 32px;
+    color: #E5E3DD;
+    border: 1px solid var(--slate-800);
+  }
+  .dark-preview h4 { color: #E5E3DD; margin-bottom: 20px; font-size: 1rem; }
+  .dark-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  .dark-swatch {
+    border-radius: var(--radius-md);
+    padding: 14px;
+    border: 1px solid var(--slate-800);
+  }
+  .dark-swatch .n { font-size: 0.8rem; font-weight: 600; margin-bottom: 2px; color: #E5E3DD; }
+  .dark-swatch .h { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--slate-400); direction: ltr; }
+  .dark-demo {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--slate-800);
+  }
+  .dark-btn {
+    padding: 9px 20px;
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.85rem;
+    border: none;
+    cursor: pointer;
+  }
+  .dark-btn.accent { background: var(--olive-500); color: var(--olive-950); }
+  .dark-btn.ghost { background: transparent; color: var(--olive-500); border: 1px solid var(--slate-800); }
+
+  /* ===== CONTRAST TABLE ===== */
+  .contrast-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+  .contrast-table th, .contrast-table td {
+    padding: 12px 16px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+  .contrast-table th { background: var(--surface-2); font-weight: 600; color: var(--slate-600); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  .contrast-table tr:last-child td { border-bottom: none; }
+  .contrast-table .preview {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.8rem;
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .badge.pass { background: var(--success-bg); color: #3D6E3D; }
+  .badge.warn { background: var(--warning-bg); color: #8A5F12; }
+  .badge.fail { background: var(--error-bg); color: #A63832; }
+
+  /* ===== FOOTER ===== */
+  footer {
+    padding: 40px 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+  }
+  footer .brand {
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--olive-500), var(--olive-800));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-content">
+    <div class="hero-badge">Design System</div>
+    <h1>Adapta</h1>
+    <p>Adaptive Agent Coach</p>
+    <div class="hero-swatches">
+      <div class="hero-swatch" style="background: var(--olive-500);"></div>
+      <div class="hero-swatch" style="background: var(--slate-700);"></div>
+      <div class="hero-swatch" style="background: #FAF9F6;"></div>
+    </div>
+  </div>
+</header>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#brand">برند</a>
+    <a href="#scales">طیف رنگ</a>
+    <a href="#neutrals">نوترال</a>
+    <a href="#semantic">سمانتیک</a>
+    <a href="#accents">اکسنت</a>
+    <a href="#components">اجزا</a>
+    <a href="#login">صفحه ورود</a>
+    <a href="#dark">دارک‌مود</a>
+    <a href="#contrast">کنتراست</a>
+  </div>
+</nav>
+
+<main class="container">
+
+  <!-- BRAND -->
+  <section id="brand">
+    <h2>رنگ‌های برند</h2>
+    <p class="section-desc">دو رنگ هسته‌ای که کل هویت Adapta بر پایه‌ی آن‌ها ساخته می‌شود — زیتونیِ گرم برای انرژی و آبی-خاکستریِ سرد برای جدیت.</p>
+    <div class="brand-grid">
+      <div class="brand-card olive">
+        <div>
+          <span class="tag">Accent · Warm</span>
+          <h3 style="margin-top:6px;">Olive 500</h3>
+        </div>
+        <div>
+          <div class="hex">#BCB957</div>
+          <div class="role">رنگ اصلی برند · دکمه برند · لوگو</div>
+        </div>
+      </div>
+      <div class="brand-card slate">
+        <div>
+          <span class="tag">Base · Cool</span>
+          <h3 style="margin-top:6px;">Slate 700</h3>
+        </div>
+        <div>
+          <div class="hex">#444753</div>
+          <div class="role">متن اصلی · پایه ساختاری · دکمه ثانویه</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCALES -->
+  <section id="scales">
+    <h2>طیف کامل رنگ</h2>
+    <p class="section-desc">هر رنگ برند یک طیف ۱۱ پله‌ای دارد. برای hover، border، background و متن از پله‌های مناسب استفاده کن — نه صرفاً از رنگ پایه.</p>
+
+    <h3>Olive — از روشن تا تیره</h3>
+    <div class="scale-grid">
+      <div class="swatch" style="background:var(--olive-50); color:var(--olive-950);"><span class="name">50</span><span class="hex">#FAF8EC</span></div>
+      <div class="swatch" style="background:var(--olive-100); color:var(--olive-900);"><span class="name">100</span><span class="hex">#F2EFD2</span></div>
+      <div class="swatch" style="background:var(--olive-200); color:var(--olive-900);"><span class="name">200</span><span class="hex">#E6E0A8</span></div>
+      <div class="swatch" style="background:var(--olive-300); color:var(--olive-950);"><span class="name">300</span><span class="hex">#D8CF7A</span></div>
+      <div class="swatch" style="background:var(--olive-400); color:var(--olive-950);"><span class="name">400</span><span class="hex">#C8BE60</span></div>
+      <div class="swatch" style="background:var(--olive-500); color:var(--olive-950);"><span class="name">500</span><span class="hex">#BCB957</span></div>
+      <div class="swatch" style="background:var(--olive-600); color:#fff;"><span class="name">600</span><span class="hex">#9F9A3E</span></div>
+      <div class="swatch" style="background:var(--olive-700); color:#fff;"><span class="name">700</span><span class="hex">#85803A</span></div>
+      <div class="swatch" style="background:var(--olive-800); color:#fff;"><span class="name">800</span><span class="hex">#6B6731</span></div>
+      <div class="swatch" style="background:var(--olive-900); color:#fff;"><span class="name">900</span><span class="hex">#565329</span></div>
+      <div class="swatch" style="background:var(--olive-950); color:#fff;"><span class="name">950</span><span class="hex">#2E2C15</span></div>
+    </div>
+
+    <h3>Slate — از روشن تا تیره</h3>
+    <div class="scale-grid">
+      <div class="swatch" style="background:var(--slate-50); color:var(--slate-800);"><span class="name">50</span><span class="hex">#F6F7FA</span></div>
+      <div class="swatch" style="background:var(--slate-100); color:var(--slate-800);"><span class="name">100</span><span class="hex">#ECEEF3</span></div>
+      <div class="swatch" style="background:var(--slate-200); color:var(--slate-800);"><span class="name">200</span><span class="hex">#D9DCE4</span></div>
+      <div class="swatch" style="background:var(--slate-300); color:var(--slate-800);"><span class="name">300</span><span class="hex">#BBBFCB</span></div>
+      <div class="swatch" style="background:var(--slate-400); color:#fff;"><span class="name">400</span><span class="hex">#8B90A0</span></div>
+      <div class="swatch" style="background:var(--slate-500); color:#fff;"><span class="name">500</span><span class="hex">#6B7080</span></div>
+      <div class="swatch" style="background:var(--slate-600); color:#fff;"><span class="name">600</span><span class="hex">#555A68</span></div>
+      <div class="swatch" style="background:var(--slate-700); color:#fff;"><span class="name">700</span><span class="hex">#444753</span></div>
+      <div class="swatch" style="background:var(--slate-800); color:#fff;"><span class="name">800</span><span class="hex">#363845</span></div>
+      <div class="swatch" style="background:var(--slate-900); color:#fff;"><span class="name">900</span><span class="hex">#292B35</span></div>
+      <div class="swatch" style="background:var(--slate-950); color:#fff;"><span class="name">950</span><span class="hex">#1A1B22</span></div>
+    </div>
+  </section>
+
+  <!-- NEUTRALS -->
+  <section id="neutrals">
+    <h2>نوترال‌ها</h2>
+    <p class="section-desc">پس‌زمینه‌ی صفحه یک کرمِ گرم است تا رنگ زیتونی خانه‌ی خودش را پیدا کند. سطوح (کارت‌ها و فرم‌ها) سفید، و مرزها خاکستری گرم هستند.</p>
+    <div class="neutral-grid">
+      <div class="neutral-item"><div class="neutral-swatch" style="background:var(--bg);"></div><div class="neutral-meta"><div class="name">Background</div><div class="hex">#FAF9F6</div></div></div>
+      <div class="neutral-item"><div class="neutral-swatch" style="background:var(--surface);"></div><div class="neutral-meta"><div class="name">Surface</div><div class="hex">#FFFFFF</div></div></div>
+      <div class="neutral-item"><div class="neutral-swatch" style="background:var(--surface-2);"></div><div class="neutral-meta"><div class="name">Surface 2</div><div class="hex">#F3F2EE</div></div></div>
+      <div class="neutral-item"><div class="neutral-swatch" style="background:var(--border);"></div><div class="neutral-meta"><div class="name">Border</div><div class="hex">#E5E3DD</div></div></div>
+      <div class="neutral-item"><div class="neutral-swatch" style="background:var(--text-muted);"></div><div class="neutral-meta"><div class="name">Text Muted</div><div class="hex">#8B8993</div></div></div>
+      <div class="neutral-item"><div class="neutral-swatch" style="background:var(--text);"></div><div class="neutral-meta"><div class="name">Text Body</div><div class="hex">#444753</div></div></div>
+      <div class="neutral-item"><div class="neutral-swatch" style="background:var(--heading);"></div><div class="neutral-meta"><div class="name">Heading</div><div class="hex">#2F313D</div></div></div>
+    </div>
+  </section>
+
+  <!-- SEMANTIC -->
+  <section id="semantic">
+    <h2>رنگ‌های سمانتیک</h2>
+    <p class="section-desc">برای پیام‌ها و وضعیت‌ها. رنگ‌ها به گونه‌ای انتخاب شده‌اند که با پالت برند درگیر نشوند.</p>
+    <div class="semantic-grid">
+      <div class="semantic-card success">
+        <div class="icon">✓</div>
+        <div class="title">Success</div>
+        <div>عملیات با موفقیت انجام شد.</div>
+        <div class="hex">#5A9D5A · bg #EEF6EE</div>
+      </div>
+      <div class="semantic-card warning">
+        <div class="icon">⚠</div>
+        <div class="title">Warning</div>
+        <div>هشدار ملایم — نیاز به توجه.</div>
+        <div class="hex">#E0A33C · bg #FCF3E1</div>
+      </div>
+      <div class="semantic-card error">
+        <div class="icon">✕</div>
+        <div class="title">Error</div>
+        <div>خطا — عملیات شکست خورد.</div>
+        <div class="hex">#D9544C · bg #FBEBEA</div>
+      </div>
+      <div class="semantic-card info">
+        <div class="icon">ℹ</div>
+        <div class="title">Info</div>
+        <div>اطلاعات و راهنمای کاربر.</div>
+        <div class="hex">#5C7CFA · bg #EAEEFB</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ACCENTS -->
+  <section id="accents">
+    <h2>اکسنت‌های تکمیلی</h2>
+    <p class="section-desc">برای نمودارها، تگ‌ها و تنوع بصری. این‌ها رنگ‌های برند را نمی‌شکنند، فقط به آن‌ها غنا می‌بخشند.</p>
+    <div class="accent-grid">
+      <div class="accent-card" style="background:var(--accent-indigo);"><div class="label">Indigo</div><div class="hex">#5B5FA5</div></div>
+      <div class="accent-card" style="background:var(--accent-amber);"><div class="label">Amber</div><div class="hex">#D4A853</div></div>
+      <div class="accent-card" style="background:var(--accent-olive);"><div class="label">Olive Green</div><div class="hex">#9BB85C</div></div>
+      <div class="accent-card" style="background:var(--accent-teal);"><div class="label">Teal</div><div class="hex">#4A9A96</div></div>
+      <div class="accent-card" style="background:var(--accent-rose);"><div class="label">Rose</div><div class="hex">#B8577A</div></div>
+    </div>
+  </section>
+
+  <!-- COMPONENTS -->
+  <section id="components">
+    <h2>اجزای رابط کاربری</h2>
+    <p class="section-desc">نمونه‌های واقعی از اجزایی که در پنل Adapta استفاده می‌شوند. دکمه‌ها، فیلدها و کارت‌ها همه با توکن‌های بالا ساخته شده‌اند.</p>
+
+    <div class="component-grid">
+      <!-- Buttons -->
+      <div class="panel">
+        <h4>دکمه‌ها</h4>
+        <div class="component-row">
+          <button class="btn btn-primary">ورود</button>
+          <button class="btn btn-brand">اکشن برند</button>
+          <button class="btn btn-secondary">ثانویه</button>
+          <button class="btn btn-ghost">Ghost</button>
+          <button class="btn btn-danger">حذف</button>
+        </div>
+      </div>
+
+      <!-- Form -->
+      <div class="panel">
+        <h4>فرم</h4>
+        <div class="field">
+          <label>نام کاربری</label>
+          <input type="text" placeholder="amirali" value="amirali">
+        </div>
+        <div class="field">
+          <label>رمز عبور</label>
+          <input type="password" placeholder="••••••••" value="password">
+        </div>
+      </div>
+
+      <!-- Alerts -->
+      <div class="panel">
+        <h4>پیام‌ها</h4>
+        <div class="alert alert-success">✓ ورود موفق. خوش آمدی!</div>
+        <div class="alert alert-warning">⚠ حساب شما نزدیک به قفل شدن است.</div>
+        <div class="alert alert-error">✕ نام کاربری یا رمز عبور اشتباه است.</div>
+        <div class="alert alert-info">ℹ جلسه شما ۱۵ دقیقه دیگر منقضی می‌شود.</div>
+      </div>
+
+      <!-- Stat cards -->
+      <div class="panel">
+        <h4>کارت‌های داشبورد</h4>
+        <div class="stat-row">
+          <div class="stat-card"><div class="label">جلسات فعال</div><div class="value">۱۲</div></div>
+          <div class="stat-card"><div class="label">ایجنت‌ها</div><div class="value">۴</div></div>
+          <div class="stat-card"><div class="label">میانگین پاسخ</div><div class="value">۱.۲s</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LOGIN MOCKUP -->
+  <section id="login">
+    <h2>صفحه ورود Adapta</h2>
+    <p class="section-desc">این دقیقاً همان صفحه‌ای است که با Streamlit خواهی ساخت. دکمه‌ی اصلی از olive-800 استفاده می‌کند (نه olive-500) تا کنتراست متن سفید به ۵.۸:۱ برسد و از نظر دسترس‌پذیری ایمن باشد.</p>
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-logo">Adapta</div>
+        <div class="login-tag">Adaptive Agent Coach</div>
+        <h3>ورود به پنل مدیریت</h3>
+        <div class="field">
+          <label>نام کاربری</label>
+          <input type="text" placeholder="username">
+        </div>
+        <div class="field">
+          <label>رمز عبور</label>
+          <input type="password" placeholder="••••••••">
+        </div>
+        <button class="btn btn-primary">ورود</button>
+        <div class="login-footer">© 2025 <a href="#">Adapta</a> — همه حقوق محفوظ است</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DARK MODE -->
+  <section id="dark">
+    <h2>حالت تاریک</h2>
+    <p class="section-desc">همان پالت، اما وارونه شده. رنگ زیتونی در پس‌زمینه‌ی تیره می‌درخشد و کنتراست AAA حفظ می‌شود (۸.۱۶:۱).</p>
+    <div class="dark-preview">
+      <h4>Dark Mode Palette</h4>
+      <div class="dark-grid">
+        <div class="dark-swatch" style="background:var(--slate-950);"><div class="n">Background</div><div class="h">#1A1B22</div></div>
+        <div class="dark-swatch" style="background:var(--slate-900);"><div class="n">Surface</div><div class="h">#292B35</div></div>
+        <div class="dark-swatch" style="background:var(--slate-800);"><div class="n">Surface 2</div><div class="h">#363845</div></div>
+        <div class="dark-swatch" style="background:var(--slate-700);"><div class="n">Border</div><div class="h">#444753</div></div>
+        <div class="dark-swatch" style="background:var(--slate-400);"><div class="n">Text Muted</div><div class="h">#8B90A0</div></div>
+        <div class="dark-swatch" style="background:#E5E3DD;"><div class="n" style="color:#292B35;">Text</div><div class="h" style="color:#555A68;">#E5E3DD</div></div>
+        <div class="dark-swatch" style="background:var(--olive-500);"><div class="n" style="color:var(--olive-950);">Accent</div><div class="h" style="color:var(--olive-950);">#BCB957</div></div>
+        <div class="dark-swatch" style="background:var(--olive-400);"><div class="n" style="color:var(--olive-950);">Accent Hover</div><div class="h" style="color:var(--olive-950);">#C8BE60</div></div>
+      </div>
+      <div class="dark-demo">
+        <button class="dark-btn accent">اکشن برند</button>
+        <button class="dark-btn ghost">Ghost</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTRAST -->
+  <section id="contrast">
+    <h2>جدول کنتراست</h2>
+    <p class="section-desc">قبل از استفاده، کنتراست را چک کن. نسبت ۴.۵:۱ حداقل برای متن معمولی، ۳:۱ برای متن بزرگ و اجزای UI لازم است.</p>
+    <table class="contrast-table">
+      <thead>
+        <tr>
+          <th>ترکیب</th>
+          <th>پیش‌نمایش</th>
+          <th>نسبت</th>
+          <th>وضعیت</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>#444753</code> روی <code>#FAF9F6</code></td>
+          <td><span class="preview" style="background:#FAF9F6; color:#444753;">متن نمونه</span></td>
+          <td><strong>8.78:1</strong></td>
+          <td><span class="badge pass">AAA ✓</span></td>
+        </tr>
+        <tr>
+          <td><code>#444753</code> روی <code>#F3F2EE</code></td>
+          <td><span class="preview" style="background:#F3F2EE; color:#444753;">متن نمونه</span></td>
+          <td><strong>8.27:1</strong></td>
+          <td><span class="badge pass">AAA ✓</span></td>
+        </tr>
+        <tr>
+          <td><code>#BCB957</code> روی <code>#1A1B22</code></td>
+          <td><span class="preview" style="background:#1A1B22; color:#BCB957;">Accent</span></td>
+          <td><strong>8.16:1</strong></td>
+          <td><span class="badge pass">AAA ✓</span></td>
+        </tr>
+        <tr>
+          <td><code>#FFFFFF</code> روی <code>#6B6731</code></td>
+          <td><span class="preview" style="background:#6B6731; color:#fff;">دکمه ورود</span></td>
+          <td><strong>5.83:1</strong></td>
+          <td><span class="badge pass">AA ✓</span></td>
+        </tr>
+        <tr>
+          <td><code>#2F313D</code> روی <code>#BCB957</code></td>
+          <td><span class="preview" style="background:#BCB957; color:#2F313D;">Brand</span></td>
+          <td><strong>6.67:1</strong></td>
+          <td><span class="badge pass">AA ✓</span></td>
+        </tr>
+        <tr>
+          <td><code>#BCB957</code> روی <code>#444753</code></td>
+          <td><span class="preview" style="background:#444753; color:#BCB957;">Accent on Slate</span></td>
+          <td><strong>4.46:1</strong></td>
+          <td><span class="badge warn">AA Large</span></td>
+        </tr>
+        <tr>
+          <td><code>#FFFFFF</code> روی <code>#BCB957</code></td>
+          <td><span class="preview" style="background:#BCB957; color:#fff;">❌ استفاده نکن</span></td>
+          <td><strong>2.07:1</strong></td>
+          <td><span class="badge fail">Fail ✕</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:20px; font-size:0.85rem; color: var(--text-muted);">
+      <strong>قانون طلایی:</strong> هرگز متن سفید را روی <code>#BCB957</code> نگذار. برای دکمه‌ی برند از <code>#6B6731</code> (پس‌زمینه) + سفید استفاده کن، یا از <code>#BCB957</code> + متن <code>#2F313D</code>.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  <div><span class="brand">Adapta</span> — Design System v1.0</div>
+  <div style="margin-top: 8px;">Olive <code>#BCB957</code> · Slate <code>#444753</code></div>
+</footer>
+
+</body>
+</html>

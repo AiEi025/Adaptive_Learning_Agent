@@ -7,7 +7,15 @@ authors = [
     { name = "AiEi025", email = "ehsaniamiali025@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "bcrypt>=5.0.0",
+    "dotenv>=0.9.9",
+    "psycopg[binary,pool]>=3.3.6",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1",
+    "python-dotenv>=1.2.4",
+    "streamlit>=1.66.1",
+]
 
 [project.scripts]
 adaptive-learning-agent = "adaptive_learning_agent:main"
