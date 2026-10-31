@@ -26,6 +26,8 @@ from async_runner import AsyncRunner
 from db.chat_sessions import ChatSessionsRepository
 from db.crud import Crud
 
+# from file_manager.file_manager import File_Manager
+
 # ============================================================
 # 1) PAGE CONFIG
 # ============================================================
@@ -65,12 +67,29 @@ CSS = """
 .stApp h4, .stApp input, .stApp textarea, .stApp button {
     font-family: 'Vazirmatn', system-ui, sans-serif;
 }
-
-/* ---------- راست‌به‌چپ (فقط محتوا؛ نه کانتینر sidebar) ---------- */
+/* ---------- راست‌به‌چپ و مدیریت هوشمند متن‌های ترکیبی ---------- */
 [data-testid="stMain"], [data-testid="stBottom"], [data-testid="stSidebarUserContent"] {
     direction: rtl;
 }
-pre, code, pre * { direction: ltr; text-align: left; }
+
+/* این بخش جدید مشکل ترکیب فارسی و انگلیسی را حل می‌کند */
+.stMarkdown p, 
+.stMarkdown li, 
+.stMarkdown h1, 
+.stMarkdown h2, 
+.stMarkdown h3, 
+.stMarkdown h4, 
+[data-testid="stChatMessage"] p {
+    unicode-bidi: plaintext; /* تشخیص خودکار جهت متن بر اساس اولین حرف */
+    text-align: start;       /* تراز کردن متن به سمت راست یا چپ بر اساس جهت تشخیص داده شده */
+}
+
+/* کدها همیشه باید انگلیسی، چپ‌چین و از چپ به راست باشند */
+pre, code, pre *, code * { 
+    direction: ltr !important; 
+    text-align: left !important; 
+    unicode-bidi: normal !important;
+}
 
 #MainMenu, footer { visibility: hidden; }
 .block-container { max-width: 860px; padding-top: 2rem; padding-bottom: 8rem; }
@@ -138,6 +157,39 @@ section[data-testid="stSidebar"] { background: var(--n-950); }
     font-size:1.6rem; font-weight:700;
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* ---------- دکمه پروفایل کاربر در سایدبار ---------- */
+/* هدف قرار دادن دکمه با استفاده از کلید آن */
+div[class*="st-key-nav_profile"] button {
+    border-radius: 50px !important; /* گرد کردن کامل دکمه */
+    padding: 8px 16px !important; /* فاصله داخلی مناسب */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important; /* چیدمان از سمت راست (به خاطر RTL) */
+    gap: 10px !important; /* فاصله بین آیکون و متن */
+    background-color: var(--n-800) !important; /* رنگ پس‌زمینه ملایم */
+    border: 1px solid var(--n-600) !important; /* حاشیه ملایم */
+    color: var(--n-100) !important;
+}
+
+/* استایل هاور (وقتی موس روی دکمه می‌رود) */
+div[class*="st-key-nav_profile"] button:hover {
+    border-color: var(--g-400) !important;
+    color: var(--g-200) !important;
+}
+
+/* تنظیم فاصله متن داخل دکمه */
+div[class*="st-key-nav_profile"] button p {
+    margin: 0 !important;
+    font-weight: 500 !important;
+    font-size: 0.95rem !important;
+}
+
+/* اگر دکمه در حالت فعال (Primary) بود */
+div[class*="st-key-nav_profile"] button[kind="primary"] {
+    background-color: var(--g-400) !important;
+    color: var(--n-950) !important;
+    border-color: var(--g-400) !important;
+}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -201,6 +253,11 @@ class AdaptaBackend:
     async def reset_learner_memory(self, user_id: str, subject: str):
         await self.runner.reset_learner_memory(user_id, subject)
 
+# @st.cache_resource
+# def get_file_manager():
+#     return File_Manager()
+
+# file_manager = get_file_manager()
 
 @st.cache_resource
 def get_async_runner() -> AsyncRunner:
@@ -276,6 +333,7 @@ DEFAULTS = {
     "learner_dirty": True,
     "view": "chat",
     "pending_prompt": None,
+    "uploaded_files": {},
 }
 for _k, _v in DEFAULTS.items():
     if _k not in st.session_state:
@@ -388,25 +446,24 @@ def render_auth():
         st.write("")
         tab_login, tab_register = st.tabs(["ورود", "ثبت‌نام"])
 
-        with tab_login:
-            with st.form("login_form"):
+        with tab_login, st.form("login_form"):
                 username = st.text_input("نام کاربری", key="login_username")
                 password = st.text_input("رمز عبور", type="password", key="login_password")
                 submitted = st.form_submit_button("ورود", type="primary", use_container_width=True)
-            if submitted:
-                if not username.strip() or not password:
-                    st.error("نام کاربری و رمز عبور را وارد کن.")
-                else:
-                    try:
-                        row = run(crud.authenticate(username, password))
-                    except Exception:
-                        show_db_error()
+                if submitted:
+                    if not username.strip() or not password:
+                        st.error("نام کاربری و رمز عبور را وارد کن.")
                     else:
-                        if row:
-                            sign_in(to_app_user(row))
-                        else:
-                            st.error("نام کاربری یا رمز عبور درست نیست. اگر حساب نداری از تب ثبت‌نام بساز.")
-
+                        with st.spinner("در حال بررسی اطلاعات..."):
+                            try:
+                                row = run(crud.authenticate(username, password))
+                            except Exception:
+                                show_db_error()
+                            else:
+                                if row:
+                                    sign_in(to_app_user(row))
+                                else:
+                                    st.error("نام کاربری یا رمز عبور درست نیست. اگر حساب نداری از تب ثبت‌نام بساز.")
         with tab_register:
             with st.form("register_form"):
                 username = st.text_input(
@@ -423,15 +480,15 @@ def render_auth():
                 for e in errors:
                     st.error(e)
                 if not errors:
-                    try:
-                        row = run(crud.register(username, password))
-                    except ValueError:
-                        st.error("این نام کاربری قبلاً گرفته شده؛ نام دیگری انتخاب کن.")
-                    except Exception:
-                        show_db_error()
-                    else:
-                        sign_in(to_app_user(row))  # ثبت‌نام موفق ← مستقیم وارد چت
-
+                    with st.spinner("در حال ساخت حساب..."):
+                        try:
+                            row = run(crud.register(username, password))
+                        except ValueError:
+                            st.error("این نام کاربری قبلاً گرفته شده؛ نام دیگری انتخاب کن.")
+                        except Exception:
+                            show_db_error()
+                        else:
+                            sign_in(to_app_user(row))
 
 # ============================================================
 # 6) SIDEBAR
@@ -505,25 +562,31 @@ def render_empty_state(user):
         step = last.get("next_step")
         st.caption(f"آخرین بار روی «{subject}» کار می‌کردیم. ادامه بدهیم یا سراغ موضوع تازه‌ای برویم؟")
         suggestions = [
-            f"ادامه‌ی «{subject}»" + (f": {step}" if step else ""),
-            "می‌خواهم یک موضوع جدید یاد بگیرم",
+            {"text": f"ادامه‌ی «{subject}»" + (f": {step}" if step else ""), "icon": ":material/play_arrow:"},
+            {"text": "می‌خواهم یک موضوع جدید یاد بگیرم", "icon": ":material/explore:"},
         ]
     else:
         st.caption("بگو چه چیزی می‌خواهی یاد بگیری. بخش‌هایی را که از قبل بلدی بگو تا از آن‌ها رد شویم، یا بگذار با چند سؤال سطحت را بسنجم.")
         suggestions = [
-            "می‌خواهم یک موضوع جدید یاد بگیرم",
-            "از من آزمون بگیر تا سطحم را بسنجی",
-            "می‌خواهم بگویم چه چیزهایی را از قبل بلدم",
+            {"text": "می‌خواهم یک موضوع جدید یاد بگیرم", "icon": ":material/explore:"},
+            {"text": "از من آزمون بگیر تا سطحم را بسنجی", "icon": ":material/quiz:"},
+            {"text": "می‌خواهم بگویم چه چیزهایی را از قبل بلدم", "icon": ":material/fact_check:"},
         ]
 
-    for i, text in enumerate(suggestions):
-        if st.button(text, key=f"suggest_{i}", use_container_width=True):
-            st.session_state.pending_prompt = text
+    for i, item in enumerate(suggestions):
+        if st.button(item["text"], icon=item["icon"], key=f"suggest_{i}", use_container_width=True):
+            st.session_state.pending_prompt = item["text"]
             st.rerun()
 
 
 def render_chat(user):
     chat_id = st.session_state.active_chat_id
+    
+    # محافظ: اگر چت فعال وجود نداشت، یکی بساز
+    if chat_id not in st.session_state.chats:
+        ensure_active_chat(user)
+        chat_id = st.session_state.active_chat_id
+        
     chat = st.session_state.chats[chat_id]
     messages = get_messages(chat_id)
 
@@ -534,7 +597,9 @@ def render_chat(user):
         render_empty_state(user)
 
     for m in messages:
-        with st.chat_message(m["role"]):
+        # تعیین آواتار برای کاربر و هوش مصنوعی
+        avatar = "👤" if m["role"] == "user" else "🎓"
+        with st.chat_message(m["role"], avatar=avatar):
             st.markdown(m["content"])
 
     typed = st.chat_input("بنویس چه چیزی می‌خواهی یاد بگیری…", key=f"input_{chat_id}")
@@ -543,17 +608,27 @@ def render_chat(user):
         return
 
     first_message = chat["title"] == DEFAULT_CHAT_TITLE
-    with st.chat_message("user"):
+    
+    # نمایش پیام کاربر با آواتار
+    with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
     messages.append({"role": "user", "content": prompt})
 
     answer = None
-    with st.chat_message("assistant"):
+    # نمایش پاسخ هوش مصنوعی با آواتار
+    with st.chat_message("assistant", avatar="🎓"):
         try:
             with st.spinner("Adapta در حال فکر کردن است…"):
                 if first_message:
-                    new_title = run(backend.generate_title(prompt))
-                    run(backend.rename_chat(user["id"], chat_id, new_title))
+                    # بلوک جداگانه برای تولید عنوان تا در صورت خطا، پاسخ اصلی از بین نرود
+                    try:
+                        new_title = run(backend.generate_title(prompt))
+                        run(backend.rename_chat(user["id"], chat_id, new_title))
+                    except Exception:
+                        logger.warning("تولید عنوان خودکار با خطا مواجه شد.")
+                        fallback_title = prompt[:30] + "..."
+                        run(backend.rename_chat(user["id"], chat_id, fallback_title))
+                
                 answer = run(backend.run_agent(user, chat_id, prompt)).strip()
             if not answer:
                 answer = "پاسخی دریافت نشد. پیامت را دوباره بفرست."
@@ -570,13 +645,11 @@ def render_chat(user):
 
     messages.append({"role": "assistant", "content": answer})
     run(backend.update_chat_activity(user["id"], chat_id))
-    st.session_state.learner_dirty = True  # Agent ممکن است حافظه را به‌روز کرده باشد
+    st.session_state.learner_dirty = True
 
     if first_message:
-        # فقط بار اول rerun می‌کنیم تا عنوان جدید در sidebar دیده شود.
         st.session_state.chats_dirty = True
         st.rerun()
-
 
 def flash(kind: str, message: str):
     """پیام موقت که بعد از st.rerun() یک بار نمایش داده می‌شود (success / error / info)."""
@@ -666,8 +739,10 @@ def render_profile(user):
         st.markdown(f"**{html_lib.escape(user['username'])}**")
         created = user.get("created_at")
         if created:
-            st.caption(f"عضو از {created.strftime('%Y-%m-%d')}")
-
+            if hasattr(created, "strftime"):
+                st.caption(f"عضو از {created.strftime('%Y-%m-%d')}")
+            else:
+                st.caption(f"عضو از {created}")
     st.write("")
     st.markdown("#### آنچه Adapta درباره‌ی یادگیری تو می‌داند")
     learner = get_learner(user)
@@ -706,7 +781,21 @@ def render_dashboard():
 
 
 def render_app(user):
+    # ۱. ایجاد یک فضای خالی در بالای صفحه برای نمایش پیام لودینگ
+    loading_placeholder = st.empty()
+    
+    # ۲. نمایش پیام لودینگ (این کار باعث می‌شود فرم ورود فوراً از صفحه پاک شود)
+    with loading_placeholder.container():
+        st.info("⏳ در حال آماده‌سازی محیط یادگیری... لطفاً صبر کنید.")
+        st.spinner() # اگر می‌خواهید اسپینر هم داشته باشید
+    
+    # ۳. انجام کارهای سنگین (اتصال به دیتابیس و دریافت چت‌ها)
     ensure_active_chat(user)
+    
+    # ۴. پاک کردن پیام لودینگ
+    loading_placeholder.empty()
+    
+    # ۵. رندر کردن محیط اصلی
     render_sidebar(user)
 
     view = st.session_state.view
@@ -716,7 +805,6 @@ def render_app(user):
         render_dashboard()
     else:
         render_chat(user)
-
 
 # ============================================================
 # 8) ROUTER

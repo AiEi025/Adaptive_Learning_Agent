@@ -8,11 +8,12 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 
 from dotenv import load_dotenv
 
+from graph import learner
+
 load_dotenv()
 logger = logging.getLogger("adapta.runner")
 
-TITLE_LLM = "deepseek-v4-flash"
-NAMESPACE_ROOT = "adapta"  # باید با nodes.py یکی باشد
+TITLE_LLM = "gpt-6.1-sol"
 
 
 def _text(message) -> str:
@@ -61,7 +62,7 @@ class AsyncRunner:
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
 
-    def run(self, coro, timeout: float | None = 180):
+    def run(self, coro, timeout: float | None = None): #pre = 180
         """کوروتین را روی loop پس‌زمینه اجرا می‌کند و تا آماده شدن نتیجه منتظر می‌ماند."""
         future = asyncio.run_coroutine_threadsafe(coro, self.loop)
         try:
@@ -120,19 +121,54 @@ class AsyncRunner:
             store = AsyncPostgresStore(pool)
             await store.setup()
 
+            async with pool.connection() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS learning_events (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        thread_id TEXT,
+                        subject TEXT NOT NULL DEFAULT '',
+                        topic TEXT,
+                        kind TEXT NOT NULL,
+                        correct BOOLEAN,
+                        difficulty TEXT,
+                        mastery_after REAL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    );
+                """)
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_learning_events_user_time
+                    ON learning_events (user_id, created_at DESC);
+                """)
+
             self._graph_pool = pool
             self.checkpointer = checkpointer
             self.store = store
+            learner.set_event_sink(self.log_learning_events)
             self.graph = build_graph(checkpointer, store)
             return self.graph
+
+    async def log_learning_events(self, user_id: str, thread_id: str, events: list):
+        """رویدادهای یادگیری را برای داشبورد ثبت می‌کند (از router_node صدا زده می‌شود)."""
+        rows = [
+            (user_id, thread_id, e["subject"], e["topic"], e["kind"],
+             e["correct"], e["difficulty"], e["mastery_after"])
+            for e in events
+        ]
+        async with self._graph_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.executemany("""
+                    INSERT INTO learning_events
+                        (user_id, thread_id, subject, topic, kind, correct, difficulty, mastery_after)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, rows)
 
     async def run_graph(
         self, user_id: str, thread_id: str, user_input: str, has_files: bool = False
     ) -> str:
         """یک نوبت گفتگو را اجرا می‌کند و متن جواب نهایی را برمی‌گرداند."""
-        from langchain_core.messages import AIMessage, HumanMessage
-
         from counting.counting import RetryContext
+        from langchain_core.messages import AIMessage, HumanMessage
 
         graph = await self.init_graph()
         result = await graph.ainvoke(
@@ -209,34 +245,37 @@ class AsyncRunner:
     # حافظه‌ی یادگیرنده (برای صفحه‌ی پروفایل / داشبورد)
     # ============================================================
 
-    async def get_learner_memory(self, user_id: str) -> list:
-        """لیست موضوع‌ها: [{'subject','level','known','weak','next_step','updated_at'}]"""
+    async def _load_profile_item(self, user_id: str):
         await self.init_graph()
-        item = await self.store.aget((NAMESPACE_ROOT, user_id, "learner"), "profile")
-        if item is None or not isinstance(item.value, dict):
+        return await self.store.aget(learner.namespace(user_id), learner.PROFILE_KEY)
+
+    async def get_learner_memory(self, user_id: str) -> list:
+        """لیست موضوع‌ها با تسلط، نقشه‌ی راه و پیشنهاد مرور (نمای داشبورد)."""
+        item = await self._load_profile_item(user_id)
+        if item is None:
             return []
-        subjects = item.value.get("subjects") or {}
-        return [
-            {
-                "subject": name,
-                "level": data.get("level") or "—",
-                "known": data.get("known", []),
-                "weak": data.get("weak", []),
-                "next_step": data.get("next_step", ""),
-                "updated_at": item.updated_at,
-            }
-            for name, data in subjects.items()
-        ]
+        subjects = learner.dashboard_view(item.value, learner.today())
+        for s in subjects:
+            s["updated_at"] = item.updated_at
+        return subjects
+
+    async def get_learner_about(self, user_id: str) -> dict:
+        """بخش «درباره‌ی تو»: نام، شغل، علایق، اهداف، یادداشت‌ها، آخرین جلسه."""
+        item = await self._load_profile_item(user_id)
+        return learner.about_view(item.value if item is not None else None)
 
     async def reset_learner_memory(self, user_id: str, subject: str):
-        """حذف یک موضوع از حافظه‌ی یادگیرنده."""
-        await self.init_graph()
-        ns = (NAMESPACE_ROOT, user_id, "learner")
-        item = await self.store.aget(ns, "profile")
-        if item is None or not isinstance(item.value, dict):
+        """حذف یک موضوع از حافظه و رویدادهای مربوط به آن."""
+        item = await self._load_profile_item(user_id)
+        if item is None:
             return
-        profile = dict(item.value)
-        profile["subjects"] = {
-            k: v for k, v in (profile.get("subjects") or {}).items() if k != subject
-        }
-        await self.store.aput(ns, "profile", profile)
+        profile = learner.migrate(item.value)
+        profile["subjects"].pop(subject, None)
+        if (profile.get("last_session") or {}).get("subject") == subject:
+            profile["last_session"] = {}
+        await self.store.aput(learner.namespace(user_id), learner.PROFILE_KEY, profile)
+        async with self._graph_pool.connection() as conn:
+            await conn.execute(
+                "DELETE FROM learning_events WHERE user_id = %s AND subject = %s",
+                (user_id, subject),
+            )

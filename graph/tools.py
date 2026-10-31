@@ -36,7 +36,10 @@ class CustomAgent:
         self.skill_path = Path(skill_path) if skill_path else None
         self.workspace_path = Path(workspace_path) if workspace_path else None
         self.model = model
-        self.checkpointer = checkpointer or MemorySaver()
+        if checkpointer is None:
+            self.checkpointer = MemorySaver()   # رفتار قبلی برای بقیه‌ی agentها
+        else:
+            self.checkpointer = checkpointer    # False = بدون حافظه‌ی داخلی
         self.tools = tools or []
         self.sysprompt = sysprompt
 
