@@ -1,13 +1,12 @@
 """
 Adapta - مربی تطبیقی (هر موضوعی)
 ================================
-رابط کاربری Streamlit. منطق Agent و دیتابیس را خودت می‌نویسی؛
-هر جا باید به PostgreSQL / LangGraph / DeepSeek وصل شوی با TODO مشخص شده.
+رابط کاربری Streamlit.
 
 ساختار فایل:
   1) تنظیمات صفحه
   2) تم و CSS
-  3) AsyncRunner + HOOKS (جایگزین runner واقعی خودت)
+  3) Runner، Repositoryها و Backend
   4) State و توابع کمکی
   5) صفحه ورود / ثبت‌نام
   6) Sidebar
@@ -20,11 +19,11 @@ import html as html_lib
 import logging
 import re
 import uuid
-from datetime import datetime
 
 import streamlit as st
 
 from async_runner import AsyncRunner
+from db.chat_sessions import ChatSessionsRepository
 from db.crud import Crud
 
 # ============================================================
@@ -150,94 +149,57 @@ def html(s: str) -> str:
 
 
 # ============================================================
-# 3) RUNNER + CRUD + DEMO BACKEND
+# 3) RUNNER + REPOSITORIES + BACKEND
 # ============================================================
-# - AsyncRunner (async_runner.py): فقط پل بین Streamlit و کدهای async.
-# - Crud (crud.py): ورود و ثبت‌نام واقعی با PostgreSQL.
-# - DemoBackend: چت، Agent و حافظه فعلاً نمایشی و در حافظه‌اند؛
-#   روی هر متد نوشته‌ام چه چیزی باید جایگزینش شود (TODO).
-#
-# معماری حافظه (پیشنهاد):
-#   - پیام‌های هر گفتگو  : LangGraph checkpointer (thread_id)  ← مثل نمونه‌ات
-#   - حافظه‌ی بلندمدت    : LangGraph Store (مثلاً AsyncPostgresStore) با
-#                          namespace = (user_id, "learner") و key = موضوع
-#     هر آیتم: {level, known, weak, next_step, updated_at}
-#   - Agent دو tool دارد: خواندن و به‌روزرسانی همین حافظه. موضوع آزاد است
-#     (SQL، Python، هر چیز دیگر) و مدل خودش تشخیص می‌دهد.
+# - AsyncRunner (async_runner.py): پل async + graph (checkpointer / store) + حافظه‌ی یادگیرنده
+# - Crud (db/crud.py): کاربران (ورود، ثبت‌نام، پروفایل)
+# - ChatSessionsRepository (db/chat_sessions.py): فهرست گفتگوهای هر کاربر
+# - AdaptaBackend: لایه‌ی نازکی که رابط کاربری با آن صحبت می‌کند
+
+logger = logging.getLogger("adapta")
 
 
-class DemoBackend:
-    def __init__(self):
-        # TODO: حذف و وصل به PostgreSQL / checkpointer / store
-        self.chats, self.messages, self.memory = {}, {}, {}
+class AdaptaBackend:
+    def __init__(self, runner: AsyncRunner, chat_sessions: ChatSessionsRepository):
+        self.runner = runner
+        self.chat_sessions = chat_sessions
 
     # ---------------- گفتگوها ----------------
     async def list_chats(self, user_id: str) -> list:
-        """TODO(db): چت‌های کاربر، جدیدترین اول (ORDER BY updated_at DESC).
-        هر ردیف: thread_id, title, created_at, updated_at."""
-        rows = [c for c in self.chats.values() if c["user_id"] == user_id]
-        return sorted(rows, key=lambda c: c["updated_at"], reverse=True)
+        return await self.chat_sessions.list_chats(user_id)
 
     async def create_chat(self, user_id: str, thread_id: str, title: str):
-        """TODO(db): INSERT INTO chats(thread_id, user_id, title, ...)."""
-        now = datetime.now()
-        self.chats[thread_id] = {"thread_id": thread_id, "user_id": user_id,
-                                 "title": title, "created_at": now, "updated_at": now}
-        self.messages[thread_id] = []
+        return await self.chat_sessions.create_chat(user_id, thread_id, title)
 
-    async def rename_chat(self, thread_id: str, title: str):
-        """TODO(db): UPDATE chats SET title = $2 WHERE thread_id = $1."""
-        if thread_id in self.chats:
-            self.chats[thread_id]["title"] = title
+    async def rename_chat(self, user_id: str, thread_id: str, title: str):
+        return await self.chat_sessions.rename_chat(user_id, thread_id, title)
+
+    async def update_chat_activity(self, user_id: str, thread_id: str):
+        await self.chat_sessions.update_chat_activity(user_id, thread_id)
 
     async def delete_chat(self, user_id: str, thread_id: str):
-        """TODO(db): حذف چت (و در صورت نیاز checkpointهای thread)."""
-        self.chats.pop(thread_id, None)
-        self.messages.pop(thread_id, None)
+        # حذف نرم از chat_sessions؛ فقط اگر گفتگو مال همین کاربر بود checkpointها هم پاک می‌شوند
+        deleted = await self.chat_sessions.delete_chat(user_id, thread_id)
+        if deleted:
+            await self.runner.delete_thread(thread_id)
 
-    async def update_chat_activity(self, thread_id: str):
-        """TODO(db): UPDATE chats SET updated_at = now()."""
-        if thread_id in self.chats:
-            self.chats[thread_id]["updated_at"] = datetime.now()
-
+    # ---------------- پیام‌ها و Agent ----------------
     async def get_chat_messages(self, thread_id: str) -> list:
-        """TODO(checkpointer): پیام‌های thread را بخوان و به
-        [{'role': 'user'|'assistant', 'content': str}] تبدیل کن.
-        همان تبدیل HumanMessage/AIMessage و رد کردن پیام‌های tool_calls
-        که در load_chat_messages نمونه‌ات داشتی اینجا بیاید."""
-        return list(self.messages.get(thread_id, []))
+        return await self.runner.get_chat_messages(thread_id)
 
-    # ---------------- Agent ----------------
     async def generate_title(self, user_input: str) -> str:
-        """TODO(llm): عنوان کوتاه با DeepSeek (prompt عنوان‌سازی نمونه‌ات)."""
-        return user_input.strip().replace("\n", " ")[:40] or DEFAULT_CHAT_TITLE
+        return await self.runner.generate_title(user_input)
 
-    async def run_agent(self, user: dict, thread_id: str, user_input: str) -> str:
-        """TODO(llm): اجرای graph با thread_id (و user_id در config).
-        مثل نمونه‌ات: result = await run_graph(user_input=..., thread_id=..., graph=...)
-        و آخرین AIMessage بدون tool_calls را برگردان.
-        پیام‌ها را checkpointer ذخیره می‌کند؛ این‌جا فقط برای نمایش دستی ذخیره می‌شود."""
-        answer = (
-            "(پاسخ نمایشی) Agent واقعی هنوز وصل نیست.\n\n"
-            f"پیام تو: {user_input}"
-        )
-        self.messages.setdefault(thread_id, []).extend([
-            {"role": "user", "content": user_input},
-            {"role": "assistant", "content": answer},
-        ])
-        return answer
+    async def run_agent(self, user: dict, thread_id: str, user_input: str,
+                        has_files: bool = False) -> str:
+        return await self.runner.run_graph(user["id"], thread_id, user_input, has_files=has_files)
 
-    # ---------------- حافظه‌ی بلندمدت یادگیرنده ----------------
+    # ---------------- حافظه‌ی یادگیرنده ----------------
     async def get_learner_memory(self, user_id: str) -> list:
-        """TODO(store): همه‌ی آیتم‌های namespace (user_id, 'learner'),
-        جدیدترین اول. هر آیتم:
-        {'subject','level','known':[...],'weak':[...],'next_step','updated_at'}"""
-        items = list(self.memory.get(user_id, {}).values())
-        return sorted(items, key=lambda m: m["updated_at"], reverse=True)
+        return await self.runner.get_learner_memory(user_id)
 
     async def reset_learner_memory(self, user_id: str, subject: str):
-        """TODO(store): حذف آیتم موضوع از store."""
-        self.memory.get(user_id, {}).pop(subject, None)
+        await self.runner.reset_learner_memory(user_id, subject)
 
 
 @st.cache_resource
@@ -253,6 +215,13 @@ def run(coro):
 
 
 @st.cache_resource
+def get_chat_sessions() -> ChatSessionsRepository:
+    repo = ChatSessionsRepository()
+    runner.run(repo.open())  # pool روی loop پس‌زمینه باز می‌شود
+    return repo
+
+
+@st.cache_resource
 def get_crud() -> Crud:
     async def _make():
         c = Crud()
@@ -263,15 +232,12 @@ def get_crud() -> Crud:
 
 
 @st.cache_resource
-def get_backend() -> DemoBackend:
-    return DemoBackend()
+def get_backend() -> AdaptaBackend:
+    return AdaptaBackend(runner, get_chat_sessions())
 
 
 crud = get_crud()
 backend = get_backend()
-
-
-logger = logging.getLogger("adapta")
 
 
 def show_db_error():
@@ -368,7 +334,12 @@ def get_messages(chat_id: str) -> list:
 
 def get_learner(user) -> list:
     if st.session_state.learner_dirty:
-        st.session_state.learner = run(backend.get_learner_memory(user["id"]))
+        try:
+            st.session_state.learner = run(backend.get_learner_memory(user["id"]))
+        except Exception:
+            # خرابی حافظه نباید کل صفحه را از کار بیندازد
+            logger.exception("loading learner memory failed")
+            st.session_state.learner = []
         st.session_state.learner_dirty = False
     return st.session_state.learner
 
@@ -500,17 +471,16 @@ def render_sidebar(user):
                     st.session_state.active_chat_id = chat_id
                     st.session_state.view = "chat"
                     st.rerun()
-            with c_menu:
-                with st.popover("⋮", use_container_width=True):
-                    st.caption("این گفتگو برای همیشه حذف می‌شود.")
-                    if st.button("حذف گفتگو", key=f"del_{chat_id}", type="primary",
-                                 icon=":material/delete:", use_container_width=True):
-                        run(backend.delete_chat(user["id"], chat_id))
-                        st.session_state.messages.pop(chat_id, None)
-                        st.session_state.chats_dirty = True
-                        if chat_id == st.session_state.active_chat_id:
-                            st.session_state.active_chat_id = None
-                        st.rerun()
+            with c_menu, st.popover("⋮", use_container_width=True):
+                st.caption("این گفتگو برای همیشه حذف می‌شود.")
+                if st.button("حذف گفتگو", key=f"del_{chat_id}", type="primary",
+                             icon=":material/delete:", use_container_width=True):
+                    run(backend.delete_chat(user["id"], chat_id))
+                    st.session_state.messages.pop(chat_id, None)
+                    st.session_state.chats_dirty = True
+                    if chat_id == st.session_state.active_chat_id:
+                        st.session_state.active_chat_id = None
+                    st.rerun()
 
         st.divider()
         if st.button(user["username"], icon=":material/person:", use_container_width=True,
@@ -583,7 +553,7 @@ def render_chat(user):
             with st.spinner("Adapta در حال فکر کردن است…"):
                 if first_message:
                     new_title = run(backend.generate_title(prompt))
-                    run(backend.rename_chat(chat_id, new_title))
+                    run(backend.rename_chat(user["id"], chat_id, new_title))
                 answer = run(backend.run_agent(user, chat_id, prompt)).strip()
             if not answer:
                 answer = "پاسخی دریافت نشد. پیامت را دوباره بفرست."
@@ -599,7 +569,7 @@ def render_chat(user):
         return
 
     messages.append({"role": "assistant", "content": answer})
-    run(backend.update_chat_activity(chat_id))
+    run(backend.update_chat_activity(user["id"], chat_id))
     st.session_state.learner_dirty = True  # Agent ممکن است حافظه را به‌روز کرده باشد
 
     if first_message:
