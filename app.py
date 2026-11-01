@@ -252,6 +252,34 @@ class AdaptaBackend:
 
     async def reset_learner_memory(self, user_id: str, subject: str):
         await self.runner.reset_learner_memory(user_id, subject)
+    # ---------------- آزمون‌ها ----------------
+
+    async def save_assessment(self, assessment):
+        await self.runner.save_assessment(assessment)
+
+    async def get_assessment(self, assessment_id: str):
+        return await self.runner.get_assessment(assessment_id)
+
+    async def create_assessment_attempt(self, attempt):
+        await self.runner.create_assessment_attempt(attempt)
+
+    async def get_assessment_attempt(self, attempt_id: str, user_id: str):
+        return await self.runner.get_assessment_attempt(attempt_id, user_id)
+
+    async def save_assessment_attempt(self, attempt):
+        return await self.runner.save_assessment_attempt(attempt)
+
+    async def get_assessment_history(
+        self,
+        user_id: str,
+        assessment_id: str | None = None,
+        limit: int = 50,
+    ):
+        return await self.runner.get_assessment_history(
+            user_id=user_id,
+            assessment_id=assessment_id,
+            limit=limit,
+        )
 
 # @st.cache_resource
 # def get_file_manager():
@@ -509,6 +537,16 @@ def render_sidebar(user):
                      use_container_width=True, key="nav_dashboard"):
             st.session_state.view = "dashboard"
             st.rerun()
+        
+        if st.button(
+        "آزمون‌ها",
+        icon=":material/quiz:",
+        use_container_width=True,
+        key="nav_assessment",
+        type="primary" if st.session_state.view == "assessment" else "secondary",
+        ):
+            # st.session_state.view = "assessment"
+            st.rerun()
 
         st.divider()
         st.caption("تاریخچه‌ی گفتگوها")
@@ -560,24 +598,57 @@ def render_empty_state(user):
         last = learner[0]
         subject = last["subject"]
         step = last.get("next_step")
-        st.caption(f"آخرین بار روی «{subject}» کار می‌کردیم. ادامه بدهیم یا سراغ موضوع تازه‌ای برویم؟")
+        st.caption(
+            f"آخرین بار روی «{subject}» کار می‌کردیم. "
+            "ادامه بدهیم یا سراغ موضوع تازه‌ای برویم؟"
+        )
         suggestions = [
-            {"text": f"ادامه‌ی «{subject}»" + (f": {step}" if step else ""), "icon": ":material/play_arrow:"},
-            {"text": "می‌خواهم یک موضوع جدید یاد بگیرم", "icon": ":material/explore:"},
+            {
+                "text": f"ادامه‌ی «{subject}»" + (f": {step}" if step else ""),
+                "icon": ":material/play_arrow:",
+            },
+            {
+                "text": "I want to learn new subject",
+                "icon": ":material/explore:",
+            },
         ]
     else:
-        st.caption("بگو چه چیزی می‌خواهی یاد بگیری. بخش‌هایی را که از قبل بلدی بگو تا از آن‌ها رد شویم، یا بگذار با چند سؤال سطحت را بسنجم.")
+        st.caption(
+            "بگو چه چیزی می‌خواهی یاد بگیری. "
+            "بخش‌هایی را که از قبل بلدی بگو تا از آن‌ها رد شویم."
+        )
         suggestions = [
-            {"text": "می‌خواهم یک موضوع جدید یاد بگیرم", "icon": ":material/explore:"},
-            {"text": "از من آزمون بگیر تا سطحم را بسنجی", "icon": ":material/quiz:"},
-            {"text": "می‌خواهم بگویم چه چیزهایی را از قبل بلدم", "icon": ":material/fact_check:"},
+            {
+                "text": "می‌خواهم یک موضوع جدید یاد بگیرم",
+                "icon": ":material/explore:",
+            },
+            {
+                "text": "می‌خواهم بگویم چه چیزهایی را از قبل بلدم",
+                "icon": ":material/fact_check:",
+            },
         ]
 
+    # گزینه‌های آزمون در هر دو حالت نمایش داده می‌شوند.
+    suggestions.extend([
+        {
+            "text": "Placement Test",
+            "icon": ":material/quiz:",
+        },
+        {
+            "text": "Assessing the Level of Learning",
+            "icon": ":material/assignment_turned_in:",
+        },
+    ])
+
     for i, item in enumerate(suggestions):
-        if st.button(item["text"], icon=item["icon"], key=f"suggest_{i}", use_container_width=True):
+        if st.button(
+            item["text"],
+            icon=item["icon"],
+            key=f"suggest_{i}",
+            use_container_width=True,
+        ):
             st.session_state.pending_prompt = item["text"]
             st.rerun()
-
 
 def render_chat(user):
     chat_id = st.session_state.active_chat_id
@@ -799,10 +870,13 @@ def render_app(user):
     render_sidebar(user)
 
     view = st.session_state.view
+
     if view == "profile":
         render_profile(user)
+    
     elif view == "dashboard":
         render_dashboard()
+    
     else:
         render_chat(user)
 
