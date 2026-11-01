@@ -14,10 +14,12 @@ Adapta - مربی تطبیقی (هر موضوعی)
   8) مسیریابی
 """
 
+import asyncio
 import copy
 import html as html_lib
 import logging
 import re
+import sys
 import uuid
 
 import streamlit as st
@@ -286,6 +288,11 @@ class AdaptaBackend:
 #     return File_Manager()
 
 # file_manager = get_file_manager()
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(
+        asyncio.WindowsSelectorEventLoopPolicy()
+    )
 
 @st.cache_resource
 def get_async_runner() -> AsyncRunner:
