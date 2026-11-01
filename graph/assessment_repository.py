@@ -4,8 +4,8 @@ from typing import Any
 from psycopg.types.json import Jsonb
 
 from graph.assessment import (
-    AssessmentDefinition,
     AssessmentAttempt,
+    AssessmentDefinition,
 )
 
 

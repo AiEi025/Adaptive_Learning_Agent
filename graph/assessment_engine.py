@@ -136,16 +136,6 @@ def validate_external_result(
     criterion_scores: Iterable[CriterionScore],
     feedback: str = "",
 ) -> QuestionResult:
-    """
-    تبدیل نتیجه ارزیاب بیرونی به QuestionResult.
-
-    این تابع برای سؤال‌های essay، practical و coding
-    و همچنین short_answerهایی که rubric دارند استفاده می‌شود.
-
-    این تابع خودش ارزیابی نمی‌کند؛ فقط نتیجه ارزیاب را
-    اعتبارسنجی و به مدل استاندارد تبدیل می‌کند.
-    """
-
     criterion_scores = list(criterion_scores)
 
     rubric_by_id = {
@@ -155,7 +145,7 @@ def validate_external_result(
 
     if not rubric_by_id:
         raise ValueError(
-            f"سؤال {question.id} معیار ارزیابی ندارد."
+            f"Question {question.id} has no evaluation rubric."
         )
 
     received_ids = [
@@ -163,22 +153,20 @@ def validate_external_result(
     ]
 
     if len(received_ids) != len(set(received_ids)):
-        raise ValueError(
-            "معیار ارزیابی تکراری دریافت شده است."
-        )
+        raise ValueError("Duplicate rubric criteria were received.")
 
     unknown_ids = set(received_ids) - set(rubric_by_id)
 
     if unknown_ids:
         raise ValueError(
-            f"شناسه معیارهای ناشناخته: {unknown_ids}"
+            f"Unknown rubric criteria: {unknown_ids}"
         )
 
     missing_ids = set(rubric_by_id) - set(received_ids)
 
     if missing_ids:
         raise ValueError(
-            f"برای بعضی معیارها نمره ارسال نشده است: {missing_ids}"
+            f"Missing rubric criteria: {missing_ids}"
         )
 
     for item in criterion_scores:
@@ -186,8 +174,8 @@ def validate_external_result(
 
         if item.earned_points > criterion.max_points:
             raise ValueError(
-                f"نمره معیار {item.criterion_id} "
-                "از حداکثر نمره آن بیشتر است."
+                f"Score for criterion {item.criterion_id} "
+                "exceeds its maximum points."
             )
 
     earned_points = sum(
@@ -199,27 +187,22 @@ def validate_external_result(
         for criterion in question.rubric
     )
 
-    # تبدیل نمره معیارها به مقیاس نمره سؤال
-    normalized_score = (
-        earned_points / rubric_total
-    ) * question.points
+    if rubric_total <= 0:
+        raise ValueError("The total rubric points must be positive.")
 
-    normalized_score = round(normalized_score, 2)
-
-    is_correct = (
-        normalized_score == question.points
+    normalized_score = round(
+        (earned_points / rubric_total) * question.points,
+        2,
     )
 
     return QuestionResult(
         question_id=question.id,
         earned_points=normalized_score,
         max_points=question.points,
-        is_correct=is_correct,
+        is_correct=normalized_score == question.points,
         feedback=feedback,
         criterion_scores=criterion_scores,
     )
-
-
 # --------------------------------------------------
 # ارزیابی یک سؤال
 # --------------------------------------------------
@@ -229,38 +212,75 @@ def grade_question(
     answer: AssessmentAnswer | None,
     external_result: QuestionResult | None = None,
 ) -> QuestionResult:
-    """
-    انتخاب روش ارزیابی بر اساس نوع سؤال.
-    """
-
-    # اگر نتیجه ارزیاب بیرونی وجود دارد، آن را بررسی می‌کنیم.
-    if external_result is not None:
-
-        if external_result.question_id != question.id:
-            raise ValueError(
-                "شناسه سؤال در نتیجه ارزیابی با سؤال مطابقت ندارد."
-            )
-
-        if external_result.max_points != question.points:
-            raise ValueError(
-                "حداکثر نمره نتیجه با حداکثر نمره سؤال مطابقت ندارد."
-            )
-
-        return external_result
-
-    # اگر پاسخی ثبت نشده باشد
-    if answer is None:
+    def unanswered_result() -> QuestionResult:
         return QuestionResult(
             question_id=question.id,
             earned_points=0,
             max_points=question.points,
             is_correct=False,
-            feedback="این سؤال بدون پاسخ باقی مانده است.",
+            feedback="This question was not answered.",
         )
+
+    if answer is None:
+        if external_result is not None:
+            raise ValueError(
+                "External evaluation cannot be provided for an unanswered question."
+            )
+        return unanswered_result()
 
     if answer.question_id != question.id:
         raise ValueError(
-            "شناسه پاسخ با شناسه سؤال مطابقت ندارد."
+            "Answer question ID does not match."
+        )
+
+    has_answer = any(
+        value and value.strip()
+        for value in (
+            answer.selected_option_id,
+            answer.answer_text,
+            answer.code,
+        )
+    )
+
+    if not has_answer:
+        if external_result is not None:
+            raise ValueError(
+                "External evaluation cannot be provided for an empty answer."
+            )
+        return unanswered_result()
+
+    if external_result is not None:
+        if external_result.question_id != question.id:
+            raise ValueError(
+                "External result question ID does not match."
+            )
+
+        if external_result.max_points != question.points:
+            raise ValueError(
+                "External result maximum points do not match."
+            )
+
+        if not question.rubric:
+            raise ValueError(
+                f"Question {question.id} has no evaluation rubric."
+            )
+
+        if question.type not in {
+            "essay",
+            "practical",
+            "coding",
+        } and not (
+            question.type == "short_answer"
+            and not question.expected_answer
+        ):
+            raise ValueError(
+                "External evaluation is not allowed for this question type."
+            )
+
+        return validate_external_result(
+            question=question,
+            criterion_scores=external_result.criterion_scores,
+            feedback=external_result.feedback,
         )
 
     if question.type == "multiple_choice":
@@ -271,20 +291,19 @@ def grade_question(
             return grade_short_answer(question, answer)
 
         raise ValueError(
-            f"سؤال کوتاه‌پاسخ {question.id} "
-            "به ارزیابی بیرونی نیاز دارد."
+            f"Short-answer question {question.id} "
+            "requires external evaluation."
         )
 
     if question.type in {"essay", "practical", "coding"}:
         raise ValueError(
-            f"سؤال {question.id} از نوع {question.type} "
-            "به ارزیاب بیرونی نیاز دارد."
+            f"Question {question.id} of type {question.type} "
+            "requires external evaluation."
         )
 
     raise ValueError(
-        f"نوع سؤال پشتیبانی نمی‌شود: {question.type}"
+        f"Unsupported question type: {question.type}"
     )
-
 
 # --------------------------------------------------
 # ارزیابی کل آزمون

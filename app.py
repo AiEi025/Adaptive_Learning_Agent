@@ -28,7 +28,10 @@ from async_runner import AsyncRunner
 from db.chat_sessions import ChatSessionsRepository
 from db.crud import Crud
 from graph.assessment import AssessmentAnswer, AssessmentAttempt
-from graph.assessment_service import create_and_save_assessment
+from graph.assessment_service import (
+    create_and_save_assessment,
+    submit_assessment_attempt,
+)
 
 # from file_manager.file_manager import File_Manager
 
@@ -460,10 +463,7 @@ def render_assessment_setup(user):
         if item.get("subject")
     ))
 
-    # --------------------------------------------------
     # Placement Assessment
-    # --------------------------------------------------
-
     if purpose == "placement":
         st.write(
             "Choose a subject to assess your current knowledge. "
@@ -496,14 +496,9 @@ def render_assessment_setup(user):
         topic = ""
         level = "Adaptive"
 
-    # --------------------------------------------------
     # Learning Assessment
-    # --------------------------------------------------
-
     else:
-        st.write(
-            "Assess what you have learned with Adapta."
-        )
+        st.write("Assess what you have learned with Adapta.")
 
         if not subjects:
             st.info(
@@ -511,10 +506,7 @@ def render_assessment_setup(user):
                 "Start learning a subject before taking this assessment."
             )
 
-            if st.button(
-                "Cancel",
-                key="cancel_assessment_setup",
-            ):
+            if st.button("Cancel", key="cancel_assessment_setup"):
                 st.session_state.pending_assessment_purpose = None
                 st.session_state.assessment_setup = None
                 st.rerun()
@@ -544,14 +536,11 @@ def render_assessment_setup(user):
         mastery = subject_data.get("mastery") or {}
         roadmap = subject_data.get("roadmap") or []
 
-        # Topics with actual demonstrated attempts
         demonstrated_topics = [
             topic_name
             for topic_name, data in mastery.items()
-            if (
-                data.get("source") == "demonstrated"
-                and data.get("attempts", 0) > 0
-            )
+            if isinstance(data, dict)
+            and data.get("attempts", 0) > 0
         ]
 
         if assessment_mode == "Use my learning history":
@@ -565,7 +554,6 @@ def render_assessment_setup(user):
                     "are available for this subject yet."
                 )
                 topics = []
-
             else:
                 topics = st.multiselect(
                     "Topics",
@@ -606,19 +594,84 @@ def render_assessment_setup(user):
                     if item.strip()
                 ]
 
+                existing_topics = {
+                    existing.casefold() for existing in topics
+                }
+
                 for item in additional_topics:
-                    if item.casefold() not in {
-                        existing.casefold() for existing in topics
-                    }:
+                    if item.casefold() not in existing_topics:
                         topics.append(item)
+                        existing_topics.add(item.casefold())
 
         topic = ", ".join(topics)
         level = "Learned content"
 
-    # --------------------------------------------------
-    # Start / Cancel
-    # --------------------------------------------------
+    # Assessment Preferences
+    st.divider()
+    st.markdown("### Assessment Preferences")
 
+    approach_labels = {
+        "Balanced": "balanced",
+        "Conceptual and deep understanding": "conceptual",
+        "Practical and problem-oriented": "practical",
+        "Challenging and advanced": "challenging",
+        "Custom approach": "custom",
+    }
+
+    selected_approach_label = st.selectbox(
+        "Assessment approach",
+        options=list(approach_labels.keys()),
+        index=0,
+        key="assessment_approach",
+    )
+
+    approach = approach_labels[selected_approach_label]
+
+    question_type_labels = {
+        "Multiple choice": "multiple_choice",
+        "Short answer": "short_answer",
+        "Essay": "essay",
+        "Practical": "practical",
+        "Coding": "coding",
+    }
+
+    selected_question_type_labels = st.multiselect(
+        "Question types",
+        options=list(question_type_labels.keys()),
+        default=["Multiple choice"],
+        key="assessment_question_types",
+    )
+
+    question_types = [
+        question_type_labels[label]
+        for label in selected_question_type_labels
+    ]
+
+    question_count = st.slider(
+        "Number of questions",
+        min_value=1,
+        max_value=20,
+        value=5,
+        step=1,
+        key="assessment_question_count",
+    )
+
+    custom_instructions = st.text_area(
+        "Additional instructions (optional)",
+        placeholder=(
+            "For example: Focus on analyzing SQL queries, "
+            "finding errors, and solving real-world problems."
+        ),
+        key="assessment_custom_instructions",
+    )
+
+    if approach == "custom":
+        st.caption(
+            "Describe your preferred assessment approach "
+            "in the additional instructions field."
+        )
+
+    # Start / Cancel
     col1, col2 = st.columns(2)
 
     with col1:
@@ -636,12 +689,26 @@ def render_assessment_setup(user):
                 st.error("Please select at least one topic.")
                 return True
 
+            if not question_types:
+                st.error("Please select at least one question type.")
+                return True
+
+            if approach == "custom" and not custom_instructions.strip():
+                st.error(
+                    "Please describe your preferred assessment approach."
+                )
+                return True
+
             st.session_state.assessment_setup = {
                 "purpose": purpose,
                 "subject": subject.strip(),
                 "topics": topics,
                 "topic": topic,
                 "level": level,
+                "approach": approach,
+                "question_types": question_types,
+                "question_count": question_count,
+                "custom_instructions": custom_instructions.strip(),
             }
 
             st.session_state.pending_assessment_purpose = None
@@ -684,7 +751,16 @@ def render_assessment_start(user, chat_id):
                         subject=setup["subject"],
                         topic=setup.get("topic", ""),
                         level=setup.get("level", "Beginner"),
-                        question_count=5,
+                        question_count=setup.get("question_count", 5),
+                        approach=setup.get("approach", "balanced"),
+                        question_types=setup.get(
+                            "question_types",
+                            ["multiple_choice"],
+                        ),
+                        custom_instructions=setup.get(
+                            "custom_instructions",
+                            "",
+                        ),
                     )
                 )
 
@@ -741,8 +817,8 @@ def render_assessment_start(user, chat_id):
 
         with st.expander("Error details"):
             st.code(repr(exc))
-
-
+            
+            
 def render_brand(tagline: bool = True):
     tag = '<p class="brand-tag">مربی تطبیقی؛ هر چیزی که می‌خواهی یاد بگیری</p>' if tagline else ""
     st.markdown(
@@ -896,7 +972,200 @@ def render_sidebar(user):
 # ============================================================
 # 7) VIEWS
 # ============================================================
+def render_assessment_result(assessment, attempt):
+    result = attempt.result
 
+    if result is None:
+        st.error("The assessment result is not available.")
+        return
+
+    st.markdown(f"## {assessment.title}")
+    st.caption(f"Subject: {assessment.subject}")
+
+    st.success("Assessment completed.")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Score",
+        f"{result.score_percent:.1f}%",
+    )
+
+    col2.metric(
+        "Earned Points",
+        f"{result.earned_points:g}",
+    )
+
+    col3.metric(
+        "Total Points",
+        f"{result.total_points:g}",
+    )
+
+    st.progress(result.score_percent / 100)
+
+    if result.summary:
+        st.markdown("### Overall Feedback")
+        st.write(result.summary)
+
+    if result.strengths:
+        st.markdown("### Strengths")
+        for item in result.strengths:
+            st.markdown(f"- {item}")
+
+    if result.weaknesses:
+        st.markdown("### Areas to Improve")
+        for item in result.weaknesses:
+            st.markdown(f"- {item}")
+
+    if result.recommendations:
+        st.markdown("### Learning Recommendations")
+        for item in result.recommendations:
+            st.markdown(f"- {item}")
+
+    st.divider()
+    st.markdown("### Question Review")
+
+    question_map = {
+        question.id: question
+        for question in assessment.questions
+    }
+
+    answer_map = {
+        answer.question_id: answer
+        for answer in attempt.answers
+    }
+
+    result_map = {
+        item.question_id: item
+        for item in result.question_results
+    }
+
+    for index, question in enumerate(
+        assessment.questions,
+        start=1,
+    ):
+        question_result = result_map.get(question.id)
+        answer = answer_map.get(question.id)
+
+        with st.expander(
+            f"Question {index} — "
+            f"{question_result.earned_points:g}/"
+            f"{question.points:g} points"
+            if question_result
+            else f"Question {index}"
+        ):
+            st.write(question.prompt)
+
+            if question.type == "multiple_choice":
+                selected_id = (
+                    answer.selected_option_id
+                    if answer
+                    else None
+                )
+
+                selected_option = next(
+                    (
+                        option
+                        for option in question.options
+                        if option.id == selected_id
+                    ),
+                    None,
+                )
+
+                correct_option = next(
+                    (
+                        option
+                        for option in question.options
+                        if option.id == question.correct_option_id
+                    ),
+                    None,
+                )
+
+                st.markdown("**Your answer:**")
+                st.write(
+                    selected_option.text
+                    if selected_option
+                    else "Not answered"
+                )
+
+                st.markdown("**Correct answer:**")
+                st.write(
+                    correct_option.text
+                    if correct_option
+                    else "Not available"
+                )
+
+            elif question.type == "coding":
+                st.markdown("**Your code:**")
+                st.code(
+                    answer.code or ""
+                    if answer
+                    else "",
+                    language="python",
+                )
+
+            else:
+                st.markdown("**Your answer:**")
+                st.write(
+                    answer.answer_text or ""
+                    if answer
+                    else "Not answered"
+                )
+
+            if question_result:
+                st.markdown("**Points earned:**")
+                st.write(
+                    f"{question_result.earned_points:g} / "
+                    f"{question_result.max_points:g}"
+                )
+
+                if question_result.feedback:
+                    st.markdown("**Feedback:**")
+                    st.write(question_result.feedback)
+
+                if question_result.criterion_scores:
+                    st.markdown("**Rubric evaluation:**")
+
+                    criterion_map = {
+                        criterion.id: criterion
+                        for criterion in question.rubric
+                    }
+
+                    for score in question_result.criterion_scores:
+                        criterion = criterion_map.get(
+                            score.criterion_id
+                        )
+
+                        criterion_name = (
+                            criterion.description
+                            if criterion
+                            else score.criterion_id
+                        )
+
+                        st.write(
+                            f"- {criterion_name}: "
+                            f"{score.earned_points:g} / "
+                            f"{criterion.max_points:g}"
+                            if criterion
+                            else f"- {criterion_name}: "
+                            f"{score.earned_points:g}"
+                        )
+
+            if question.explanation:
+                st.markdown("**Explanation:**")
+                st.write(question.explanation)
+
+    st.divider()
+
+    if st.button(
+        "Back to Chat",
+        key=f"assessment_back_{attempt.id}",
+        use_container_width=True,
+    ):
+        st.session_state.active_assessment_id = None
+        st.session_state.active_assessment_attempt_id = None
+        st.rerun()
+        
 def render_active_assessment(user):
     assessment_id = st.session_state.get(
         "active_assessment_id"
@@ -922,6 +1191,10 @@ def render_active_assessment(user):
 
         if assessment is None or attempt is None:
             st.error("The assessment could not be loaded.")
+            return
+
+        if attempt.status == "completed":
+            render_assessment_result(assessment, attempt)
             return
 
         if attempt.status != "in_progress":
@@ -965,17 +1238,22 @@ def render_active_assessment(user):
                 }
 
                 option_texts = [
-                    option.text for option in options
+                    option.text
+                    for option in options
                 ]
 
                 previous_text = None
 
-                if previous_answer and previous_answer.selected_option_id:
+                if (
+                    previous_answer
+                    and previous_answer.selected_option_id
+                ):
                     previous_option = next(
                         (
                             option
                             for option in options
-                            if option.id == previous_answer.selected_option_id
+                            if option.id
+                            == previous_answer.selected_option_id
                         ),
                         None,
                     )
@@ -994,14 +1272,12 @@ def render_active_assessment(user):
                     key=f"assessment_{attempt_id}_{question.id}",
                 )
 
-                selected_option_id = (
-                    option_labels.get(selected_text)
-                    if selected_text is not None
-                    else None
-                )
-
                 answer_updates[question.id] = {
-                    "selected_option_id": selected_option_id,
+                    "selected_option_id": (
+                        option_labels.get(selected_text)
+                        if selected_text is not None
+                        else None
+                    ),
                     "answer_text": None,
                     "code": None,
                 }
@@ -1061,19 +1337,20 @@ def render_active_assessment(user):
 
             st.divider()
 
-        if st.button(
-            "Save Answers",
-            key=f"save_answers_{attempt_id}",
-            use_container_width=True,
-        ):
+        def build_updated_answers():
             updated_answers = []
 
             for question in assessment.questions:
                 answer_data = answer_updates[question.id]
 
-                if not any(
-                    answer_data.values()
-                ):
+                has_answer = any(
+                    value.strip()
+                    if isinstance(value, str)
+                    else bool(value)
+                    for value in answer_data.values()
+                )
+
+                if not has_answer:
                     continue
 
                 updated_answers.append(
@@ -1087,22 +1364,59 @@ def render_active_assessment(user):
                     )
                 )
 
+            return updated_answers
+
+        submit_clicked = st.button(
+            "Submit Assessment",
+            key=f"submit_assessment_{attempt_id}",
+            type="primary",
+            use_container_width=True,
+        )
+
+        if submit_clicked:
+            updated_answers = build_updated_answers()
+
             attempt.answers = updated_answers
 
             run(
                 backend.save_assessment_attempt(attempt)
             )
 
-            st.success("Your answers have been saved.")
-            st.rerun()
+            if submit_clicked:
+                updated_answers = build_updated_answers()
+            
+                attempt.answers = updated_answers
+            
+                run(
+                    backend.save_assessment_attempt(attempt)
+                )
+            
+                with st.spinner(
+                    "Evaluating your assessment..."
+                ):
+                    completed_attempt = run(
+                        submit_assessment_attempt(
+                            backend=backend,
+                            attempt_id=attempt_id,
+                            user_id=user["id"],
+                        )
+                    )
+            
+                if completed_attempt.status == "completed":
+                    st.success("Your assessment has been completed.")
+                    st.rerun()
 
     except Exception as exc:
-        logger.exception("Failed to render active assessment.")
-        st.error("An error occurred while loading the assessment.")
+        logger.exception(
+            "Failed to render or submit active assessment."
+        )
+
+        st.error(
+            "An error occurred while processing the assessment."
+        )
 
         with st.expander("Error details"):
             st.code(repr(exc))
-
 
 def render_empty_state(user):
     learner = get_learner(user)

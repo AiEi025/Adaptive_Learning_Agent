@@ -131,6 +131,13 @@ class AssessmentDefinition(BaseModel):
 
     instructions: str = ""
 
+    approach: str = "balanced"
+    question_types: list[QuestionType] = Field(
+        default_factory=lambda: ["multiple_choice"]
+    )
+    question_count: int = Field(default=5, ge=1, le=20)
+    custom_instructions: str = ""
+
     questions: list[AssessmentQuestion] = Field(min_length=1)
 
     status: AssessmentStatus = "draft"
@@ -141,14 +148,30 @@ class AssessmentDefinition(BaseModel):
         question_ids = [question.id for question in self.questions]
 
         if len(question_ids) != len(set(question_ids)):
-            raise ValueError("شناسه سؤال‌های آزمون باید یکتا باشد.")
+            raise ValueError("Assessment question IDs must be unique.")
+
+        if not self.question_types:
+            raise ValueError("At least one question type must be selected.")
+
+        if len(self.question_types) != len(set(self.question_types)):
+            raise ValueError("Question types must be unique.")
+
+        if len(self.questions) != self.question_count:
+            raise ValueError("The question count does not match the definition.")
+
+        allowed_types = set(self.question_types)
+
+        for question in self.questions:
+            if question.type not in allowed_types:
+                raise ValueError(
+                    "A generated question uses a type that was not selected."
+                )
 
         return self
 
     @property
     def total_points(self) -> float:
         return sum(question.points for question in self.questions)
-
 
 # --------------------------------------------------
 # پاسخ کاربر به یک سؤال
@@ -176,6 +199,15 @@ class CriterionScore(BaseModel):
     earned_points: float = Field(ge=0)
     feedback: str = ""
 
+class ExternalEvaluation(BaseModel):
+    criterion_scores: list[CriterionScore] = Field(min_length=1)
+    feedback: str = ""
+
+class AssessmentFeedback(BaseModel):
+    summary: str
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
 
 # --------------------------------------------------
 # نتیجه ارزیابی یک سؤال
