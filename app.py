@@ -27,6 +27,8 @@ import streamlit as st
 from async_runner import AsyncRunner
 from db.chat_sessions import ChatSessionsRepository
 from db.crud import Crud
+from graph.assessment import AssessmentAnswer, AssessmentAttempt
+from graph.assessment_service import create_and_save_assessment
 
 # from file_manager.file_manager import File_Manager
 
@@ -442,6 +444,305 @@ def get_learner(user) -> list:
 # ============================================================
 
 
+def render_assessment_setup(user):
+    purpose = st.session_state.pending_assessment_purpose
+
+    if purpose not in {"placement", "learning"}:
+        return False
+
+    learner = get_learner(user) or []
+
+    st.markdown("## Start an Assessment")
+
+    subjects = list(dict.fromkeys(
+        item["subject"]
+        for item in learner
+        if item.get("subject")
+    ))
+
+    # --------------------------------------------------
+    # Placement Assessment
+    # --------------------------------------------------
+
+    if purpose == "placement":
+        st.write(
+            "Choose a subject to assess your current knowledge. "
+            "The assessment will start with easier questions "
+            "and gradually progress to harder questions."
+        )
+
+        subject_options = ["Other subject"] + subjects
+
+        selected_subject = st.selectbox(
+            "Subject",
+            subject_options,
+            key="placement_subject",
+        )
+
+        if selected_subject == "Other subject":
+            subject = st.text_input(
+                "Enter a subject",
+                key="placement_custom_subject",
+            )
+        else:
+            subject = selected_subject
+
+        st.caption(
+            "No prior level selection is required. "
+            "The assessment will cover the subject broadly."
+        )
+
+        topics = []
+        topic = ""
+        level = "Adaptive"
+
+    # --------------------------------------------------
+    # Learning Assessment
+    # --------------------------------------------------
+
+    else:
+        st.write(
+            "Assess what you have learned with Adapta."
+        )
+
+        if not subjects:
+            st.info(
+                "No learning history is available yet. "
+                "Start learning a subject before taking this assessment."
+            )
+
+            if st.button(
+                "Cancel",
+                key="cancel_assessment_setup",
+            ):
+                st.session_state.pending_assessment_purpose = None
+                st.session_state.assessment_setup = None
+                st.rerun()
+
+            return True
+
+        assessment_mode = st.radio(
+            "How would you like to select assessment topics?",
+            [
+                "Use my learning history",
+                "Choose topics manually",
+            ],
+            key="learning_assessment_mode",
+        )
+
+        subject = st.selectbox(
+            "Subject",
+            subjects,
+            key="learning_assessment_subject",
+        )
+
+        subject_data = next(
+            item for item in learner
+            if item.get("subject") == subject
+        )
+
+        mastery = subject_data.get("mastery") or {}
+        roadmap = subject_data.get("roadmap") or []
+
+        # Topics with actual demonstrated attempts
+        demonstrated_topics = [
+            topic_name
+            for topic_name, data in mastery.items()
+            if (
+                data.get("source") == "demonstrated"
+                and data.get("attempts", 0) > 0
+            )
+        ]
+
+        if assessment_mode == "Use my learning history":
+            st.caption(
+                "Select topics with a recorded history of actual practice."
+            )
+
+            if not demonstrated_topics:
+                st.info(
+                    "No topics with demonstrated practice "
+                    "are available for this subject yet."
+                )
+                topics = []
+
+            else:
+                topics = st.multiselect(
+                    "Topics",
+                    options=demonstrated_topics,
+                    default=demonstrated_topics,
+                    key="learning_history_topics",
+                )
+
+        else:
+            st.caption(
+                "Choose topics from your learning roadmap "
+                "or enter additional topics."
+            )
+
+            manual_topic_options = list(dict.fromkeys(
+                [
+                    item["topic"]
+                    for item in roadmap
+                    if item.get("topic")
+                ] + list(mastery.keys())
+            ))
+
+            topics = st.multiselect(
+                "Topics",
+                options=manual_topic_options,
+                key="learning_manual_topics",
+            )
+
+            custom_topics = st.text_input(
+                "Additional topics (comma-separated)",
+                key="learning_custom_topics",
+            )
+
+            if custom_topics.strip():
+                additional_topics = [
+                    item.strip()
+                    for item in custom_topics.split(",")
+                    if item.strip()
+                ]
+
+                for item in additional_topics:
+                    if item.casefold() not in {
+                        existing.casefold() for existing in topics
+                    }:
+                        topics.append(item)
+
+        topic = ", ".join(topics)
+        level = "Learned content"
+
+    # --------------------------------------------------
+    # Start / Cancel
+    # --------------------------------------------------
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(
+            "Start Assessment",
+            type="primary",
+            use_container_width=True,
+            key="start_assessment",
+        ):
+            if not subject.strip():
+                st.error("Please enter or select a subject.")
+                return True
+
+            if purpose == "learning" and not topics:
+                st.error("Please select at least one topic.")
+                return True
+
+            st.session_state.assessment_setup = {
+                "purpose": purpose,
+                "subject": subject.strip(),
+                "topics": topics,
+                "topic": topic,
+                "level": level,
+            }
+
+            st.session_state.pending_assessment_purpose = None
+            st.rerun()
+
+    with col2:
+        if st.button(
+            "Cancel",
+            use_container_width=True,
+            key="cancel_assessment",
+        ):
+            st.session_state.pending_assessment_purpose = None
+            st.session_state.assessment_setup = None
+            st.rerun()
+
+    return True
+
+
+def render_assessment_start(user, chat_id):
+    setup = st.session_state.assessment_setup
+
+    if not setup:
+        return
+
+    try:
+        assessment_id = st.session_state.get(
+            "assessment_start_assessment_id"
+        )
+
+        if assessment_id:
+            assessment = run(
+                backend.get_assessment(assessment_id)
+            )
+        else:
+            with st.spinner("Generating your assessment..."):
+                assessment = run(
+                    create_and_save_assessment(
+                        backend=backend,
+                        purpose=setup["purpose"],
+                        subject=setup["subject"],
+                        topic=setup.get("topic", ""),
+                        level=setup.get("level", "Beginner"),
+                        question_count=5,
+                    )
+                )
+
+            st.session_state.assessment_start_assessment_id = (
+                assessment.id
+            )
+
+        if assessment is None:
+            raise ValueError("The assessment could not be loaded.")
+
+        attempt_id = st.session_state.get(
+            "assessment_start_attempt_id"
+        )
+
+        attempt = None
+
+        if attempt_id:
+            attempt = run(
+                backend.get_assessment_attempt(
+                    attempt_id,
+                    user["id"],
+                )
+            )
+
+        if attempt is None:
+            attempt = AssessmentAttempt(
+                id=str(uuid.uuid4()),
+                assessment_id=assessment.id,
+                user_id=user["id"],
+                thread_id=chat_id,
+                status="in_progress",
+            )
+
+            st.session_state.assessment_start_attempt_id = (
+                attempt.id
+            )
+
+            run(
+                backend.create_assessment_attempt(attempt)
+            )
+
+        st.session_state.active_assessment_id = assessment.id
+        st.session_state.active_assessment_attempt_id = attempt.id
+
+        st.session_state.assessment_setup = None
+        st.session_state.pop("assessment_start_assessment_id", None)
+        st.session_state.pop("assessment_start_attempt_id", None)
+
+        st.rerun()
+
+    except Exception as exc:
+        logger.exception("Failed to start assessment.")
+        st.error("The assessment could not be started.")
+
+        with st.expander("Error details"):
+            st.code(repr(exc))
+
+
 def render_brand(tagline: bool = True):
     tag = '<p class="brand-tag">مربی تطبیقی؛ هر چیزی که می‌خواهی یاد بگیری</p>' if tagline else ""
     st.markdown(
@@ -596,6 +897,212 @@ def render_sidebar(user):
 # 7) VIEWS
 # ============================================================
 
+def render_active_assessment(user):
+    assessment_id = st.session_state.get(
+        "active_assessment_id"
+    )
+    attempt_id = st.session_state.get(
+        "active_assessment_attempt_id"
+    )
+
+    if not assessment_id or not attempt_id:
+        return
+
+    try:
+        assessment = run(
+            backend.get_assessment(assessment_id)
+        )
+
+        attempt = run(
+            backend.get_assessment_attempt(
+                attempt_id,
+                user["id"],
+            )
+        )
+
+        if assessment is None or attempt is None:
+            st.error("The assessment could not be loaded.")
+            return
+
+        if attempt.status != "in_progress":
+            st.warning("This assessment attempt is no longer active.")
+            return
+
+        st.markdown(f"## {assessment.title}")
+        st.caption(f"Subject: {assessment.subject}")
+
+        if assessment.topic:
+            st.caption(f"Topics: {assessment.topic}")
+
+        if assessment.instructions:
+            st.write(assessment.instructions)
+
+        st.divider()
+
+        existing_answers = {
+            answer.question_id: answer
+            for answer in attempt.answers
+        }
+
+        answer_updates = {}
+
+        for index, question in enumerate(
+            assessment.questions,
+            start=1,
+        ):
+            st.markdown(f"### Question {index}")
+            st.write(question.prompt)
+            st.caption(f"Points: {question.points}")
+
+            previous_answer = existing_answers.get(question.id)
+
+            if question.type == "multiple_choice":
+                options = question.options
+
+                option_labels = {
+                    option.text: option.id
+                    for option in options
+                }
+
+                option_texts = [
+                    option.text for option in options
+                ]
+
+                previous_text = None
+
+                if previous_answer and previous_answer.selected_option_id:
+                    previous_option = next(
+                        (
+                            option
+                            for option in options
+                            if option.id == previous_answer.selected_option_id
+                        ),
+                        None,
+                    )
+
+                    if previous_option:
+                        previous_text = previous_option.text
+
+                selected_text = st.radio(
+                    "Select your answer",
+                    option_texts,
+                    index=(
+                        option_texts.index(previous_text)
+                        if previous_text in option_texts
+                        else None
+                    ),
+                    key=f"assessment_{attempt_id}_{question.id}",
+                )
+
+                selected_option_id = (
+                    option_labels.get(selected_text)
+                    if selected_text is not None
+                    else None
+                )
+
+                answer_updates[question.id] = {
+                    "selected_option_id": selected_option_id,
+                    "answer_text": None,
+                    "code": None,
+                }
+
+            elif question.type == "short_answer":
+                answer_text = st.text_input(
+                    "Your answer",
+                    value=(
+                        previous_answer.answer_text or ""
+                        if previous_answer
+                        else ""
+                    ),
+                    key=f"assessment_{attempt_id}_{question.id}",
+                )
+
+                answer_updates[question.id] = {
+                    "selected_option_id": None,
+                    "answer_text": answer_text,
+                    "code": None,
+                }
+
+            elif question.type in {"essay", "practical"}:
+                answer_text = st.text_area(
+                    "Your answer",
+                    value=(
+                        previous_answer.answer_text or ""
+                        if previous_answer
+                        else ""
+                    ),
+                    height=180,
+                    key=f"assessment_{attempt_id}_{question.id}",
+                )
+
+                answer_updates[question.id] = {
+                    "selected_option_id": None,
+                    "answer_text": answer_text,
+                    "code": None,
+                }
+
+            elif question.type == "coding":
+                code = st.text_area(
+                    "Write your code here",
+                    value=(
+                        previous_answer.code or ""
+                        if previous_answer
+                        else ""
+                    ),
+                    height=220,
+                    key=f"assessment_{attempt_id}_{question.id}",
+                )
+
+                answer_updates[question.id] = {
+                    "selected_option_id": None,
+                    "answer_text": None,
+                    "code": code,
+                }
+
+            st.divider()
+
+        if st.button(
+            "Save Answers",
+            key=f"save_answers_{attempt_id}",
+            use_container_width=True,
+        ):
+            updated_answers = []
+
+            for question in assessment.questions:
+                answer_data = answer_updates[question.id]
+
+                if not any(
+                    answer_data.values()
+                ):
+                    continue
+
+                updated_answers.append(
+                    AssessmentAnswer(
+                        question_id=question.id,
+                        selected_option_id=answer_data[
+                            "selected_option_id"
+                        ],
+                        answer_text=answer_data["answer_text"],
+                        code=answer_data["code"],
+                    )
+                )
+
+            attempt.answers = updated_answers
+
+            run(
+                backend.save_assessment_attempt(attempt)
+            )
+
+            st.success("Your answers have been saved.")
+            st.rerun()
+
+    except Exception as exc:
+        logger.exception("Failed to render active assessment.")
+        st.error("An error occurred while loading the assessment.")
+
+        with st.expander("Error details"):
+            st.code(repr(exc))
+
 
 def render_empty_state(user):
     learner = get_learner(user)
@@ -654,10 +1161,25 @@ def render_empty_state(user):
             key=f"suggest_{i}",
             use_container_width=True,
         ):
-            st.session_state.pending_prompt = item["text"]
-            st.rerun()
+            if item["text"] == "Placement Test":
+                st.session_state.pending_assessment_purpose = "placement"
+                st.rerun()
+
+            elif item["text"] == "Assessing the Level of Learning":
+                st.session_state.pending_assessment_purpose = "learning"
+                st.rerun()
+
+            else:
+                st.session_state.pending_prompt = item["text"]
+                st.rerun()
 
 def render_chat(user):
+    if "pending_assessment_purpose" not in st.session_state:
+            st.session_state.pending_assessment_purpose = None
+    
+    if "assessment_setup" not in st.session_state:
+        st.session_state.assessment_setup = None
+        
     chat_id = st.session_state.active_chat_id
     
     # محافظ: اگر چت فعال وجود نداشت، یکی بساز
@@ -667,8 +1189,20 @@ def render_chat(user):
         
     chat = st.session_state.chats[chat_id]
     messages = get_messages(chat_id)
-
+    
+        
     st.markdown(f"### {html_lib.escape(chat['title'])}")
+    if st.session_state.pending_assessment_purpose:
+        render_assessment_setup(user)
+        return
+
+    if st.session_state.assessment_setup:
+        render_assessment_start(user, chat_id)
+        return
+    
+    if st.session_state.get("active_assessment_attempt_id"):
+        render_active_assessment(user)
+        return
 
     chip_prompt = st.session_state.pop("pending_prompt", None)
     if not messages and not chip_prompt:
