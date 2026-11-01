@@ -9,6 +9,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from dotenv import load_dotenv
 
 from graph import learner
+from graph.assessment_repository import AssessmentRepository
 
 load_dotenv()
 logger = logging.getLogger("adapta.runner")
@@ -57,6 +58,7 @@ class AsyncRunner:
         self._graph_pool = None
         self._graph_lock = None
         self._title_llm = None
+        self.assessment_repository = None
 
     def _run_loop(self):
         asyncio.set_event_loop(self.loop)
@@ -120,6 +122,8 @@ class AsyncRunner:
             await checkpointer.setup()
             store = AsyncPostgresStore(pool)
             await store.setup()
+            assessment_repository = AssessmentRepository(pool)
+            await assessment_repository.initialize()
 
             async with pool.connection() as conn:
                 await conn.execute("""
@@ -144,6 +148,7 @@ class AsyncRunner:
             self._graph_pool = pool
             self.checkpointer = checkpointer
             self.store = store
+            self.assessment_repository = assessment_repository
             learner.set_event_sink(self.log_learning_events)
             self.graph = build_graph(checkpointer, store)
             return self.graph
@@ -279,3 +284,54 @@ class AsyncRunner:
                 "DELETE FROM learning_events WHERE user_id = %s AND subject = %s",
                 (user_id, subject),
             )
+        # ============================================================
+    # Assessment: آزمون‌ها و تلاش‌های کاربران
+    # ============================================================
+
+    async def save_assessment(self, assessment):
+        """ذخیره تعریف یک آزمون."""
+        await self.init_graph()
+        await self.assessment_repository.create_assessment(assessment)
+
+    async def get_assessment(self, assessment_id: str):
+        """دریافت تعریف آزمون."""
+        await self.init_graph()
+        return await self.assessment_repository.get_assessment(
+            assessment_id
+        )
+
+    async def create_assessment_attempt(self, attempt):
+        """ثبت شروع شرکت کاربر در آزمون."""
+        await self.init_graph()
+        await self.assessment_repository.create_attempt(attempt)
+
+    async def get_assessment_attempt(
+        self,
+        attempt_id: str,
+        user_id: str,
+    ):
+        """دریافت تلاش فقط در صورتی که متعلق به کاربر باشد."""
+        await self.init_graph()
+        return await self.assessment_repository.get_attempt(
+            attempt_id,
+            user_id,
+        )
+
+    async def save_assessment_attempt(self, attempt):
+        """ذخیره پاسخ‌ها یا نتیجه نهایی آزمون."""
+        await self.init_graph()
+        return await self.assessment_repository.save_attempt(attempt)
+
+    async def get_assessment_history(
+        self,
+        user_id: str,
+        assessment_id: str | None = None,
+        limit: int = 50,
+    ):
+        """دریافت تاریخچه آزمون‌های کاربر."""
+        await self.init_graph()
+        return await self.assessment_repository.list_attempts(
+            user_id=user_id,
+            assessment_id=assessment_id,
+            limit=limit,
+        )
