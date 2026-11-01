@@ -147,7 +147,7 @@ class AssessmentRepository:
         if row is None:
             return None
 
-        data = self._json_value(row[0])
+        data = self._json_value(row["definition"])
 
         return AssessmentDefinition.model_validate(data)
 
@@ -226,15 +226,15 @@ class AssessmentRepository:
             return None
 
         data = {
-            "id": row[0],
-            "assessment_id": row[1],
-            "user_id": row[2],
-            "thread_id": row[3],
-            "status": row[4],
-            "answers": self._json_value(row[5]),
-            "result": self._json_value(row[6]),
-            "started_at": row[7],
-            "submitted_at": row[8],
+            "id": row["id"],
+            "assessment_id": row["assessment_id"],
+            "user_id": row["user_id"],
+            "thread_id": row["thread_id"],
+            "status": row["status"],
+            "answers": self._json_value(row["answers"]),
+            "result": self._json_value(row["result"]),
+            "started_at": row["started_at"],
+            "submitted_at": row["submitted_at"],
         }
 
         return AssessmentAttempt.model_validate(data)
@@ -345,15 +345,15 @@ class AssessmentRepository:
 
         for row in rows:
             data = {
-                "id": row[0],
-                "assessment_id": row[1],
-                "user_id": row[2],
-                "thread_id": row[3],
-                "status": row[4],
-                "answers": self._json_value(row[5]),
-                "result": self._json_value(row[6]),
-                "started_at": row[7],
-                "submitted_at": row[8],
+            "id": row["id"],
+            "assessment_id": row["assessment_id"],
+            "user_id": row["user_id"],
+            "thread_id": row["thread_id"],
+            "status": row["status"],
+            "answers": self._json_value(row["answers"]),
+            "result": self._json_value(row["result"]),
+            "started_at": row["started_at"],
+            "submitted_at": row["submitted_at"],
             }
 
             attempts.append(
