@@ -6,14 +6,16 @@ Adapta - گره‌های graph
 منطق مدل یادگیرنده (حافظه، تسلط، نقشه‌ی راه، رویدادها) در graph/learner.py است؛
 این فایل فقط LLMها و گره‌ها را نگه می‌دارد.
 """
-
 import asyncio
 import json
 import logging
+import os
 import re
 import sys
 from functools import lru_cache
 from pathlib import Path
+
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -48,7 +50,14 @@ HISTORY_LIMIT = 20           # حداکثر پیام‌هایی که به مدل
 TRACE_LIMIT = 1200           # حداکثر طول هر خروجی tool در prompt اعتبارسنج
 TOOL_OUTPUT_LIMIT = 12000    # حداکثر طول خروجی ابزارهای extract / crawl که به مدل داده می‌شود
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-
+SEARCH_RE = re.compile(
+    r"\b(search for me|search|look up|find latest|"
+    r"latest news|current information|browse the web)\b",
+    re.IGNORECASE,
+)
+JEV_URL = "https://openrouter.ai/api/alpha/decisions"
+JEV_MODEL = "typesafe/jev-1.14"
+JEV_CONFIDENCE_THRESHOLD = 0.75
 
 @lru_cache(maxsize=16)
 def get_llm(model_name: str, temperature: float | None = None, reasoning_effort: str | None = None):
@@ -317,6 +326,88 @@ Return ONLY a JSON object: {{"state": "tools"}} or {{"state": "general"}}""",
     ),
 ])
 
+def _jev_request(payload: dict) -> dict:
+    api_key = os.getenv("OPENROUTER_API_KEY")
+
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+
+    response = requests.post(
+        JEV_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=30,
+    )
+
+    response.raise_for_status()
+    return response.json()
+
+
+async def jev_router(
+    question: str,
+    recent: str,
+    has_files: bool,
+) -> str:
+
+    payload = {
+        "model": JEV_MODEL,
+        "state": {
+            "user_message": question,
+            "recent_dialogue": recent,
+            "has_files": has_files,
+        },
+        "questions": {
+            "route": {
+                "type": "choice",
+                "instructions": (
+                    "Choose the best route for handling the user's latest message. "
+                    "Consider the recent dialogue and whether files are attached."
+                ),
+                "criteria": {
+                    "general": (
+                        "The user needs an explanation, teaching, conversation, "
+                        "or a direct text answer. No external tool is required."
+                    ),
+                    "tools": (
+                        "The user needs an available tool, external information "
+                        "retrieval, file processing, or an external operation."
+                    ),
+                },
+            }
+        },
+    }
+
+    result = await asyncio.to_thread(_jev_request, payload)
+
+    answer = result["answers"]["route"]
+    route = answer["choice"]
+    probabilities = answer["probabilities"]
+
+    confidence = probabilities.get(route, 0)
+
+    logger.info(
+        "JEV ROUTER: route=%s confidence=%s model=%s usage=%s",
+        route,
+        confidence,
+        result.get("model"),
+        result.get("usage"),
+    )
+
+    if route not in ("general", "tools"):
+        raise ValueError(f"Unexpected Jev route: {route}")
+
+    if confidence < JEV_CONFIDENCE_THRESHOLD:
+        logger.warning(
+        "Jev confidence is below threshold: %s. "
+        "Using selected route: %s",
+        confidence,
+        route,
+    )
+
+    return route
 
 @lru_cache(maxsize=1)
 def get_router_chain():
@@ -358,20 +449,52 @@ async def router_node(g_state: state.Graph_state, *, store) -> dict:
             logger.exception("memory update failed")
             return profile
 
+    # async def pick_route() -> str:
+    #     if URL_RE.search(question):
+    #         return "tools"  # لینک در پیام ← بدون تماس LLM مستقیم به tools
+    #     try:
+    #         result = await get_router_chain().ainvoke({
+    #             "question": question,
+    #             "recent": recent_dialogue(g_state.messages),
+    #             "has_files": bool(getattr(g_state, "has_files", False)),
+    #         })
+    #         return field_of(result, "state", "general")
+    #     except Exception:
+    #         logger.exception("router failed")
+    #         return "general"
     async def pick_route() -> str:
         if URL_RE.search(question):
-            return "tools"  # لینک در پیام ← بدون تماس LLM مستقیم به tools
-        try:
-            result = await get_router_chain().ainvoke({
-                "question": question,
-                "recent": recent_dialogue(g_state.messages),
-                "has_files": bool(getattr(g_state, "has_files", False)),
-            })
-            return field_of(result, "state", "general")
-        except Exception:
-            logger.exception("router failed")
-            return "general"
+            return "tools"
+        if SEARCH_RE.search(question):
+            return "tools"
 
+        recent = recent_dialogue(g_state.messages)
+        has_files = bool(getattr(g_state, "has_files", False))
+
+        try:
+            return await jev_router(
+                question=question,
+                recent=recent,
+                has_files=has_files,
+            )
+
+        except Exception:
+            logger.exception(
+                "Jev router failed; falling back to LLM router"
+            )
+
+            try:
+                result = await get_router_chain().ainvoke({
+                    "question": question,
+                    "recent": recent,
+                    "has_files": has_files,
+                })
+
+                return field_of(result, "state", "general")
+
+            except Exception:
+                logger.exception("LLM fallback router failed")
+                return "general"
     # دو تماس LLM همزمان؛ تأخیر = کندترین یکی، نه جمع هر دو
     new_profile, route = await asyncio.gather(update_memory(), pick_route())
     logger.info("router → %s", route)
@@ -506,6 +629,7 @@ def build_tool_trace(messages) -> str:
 
 
 async def tools_node(g_state: state.Graph_state) -> dict:
+    logger.info("ENTERING TOOLS NODE")
     is_retry = not g_state.validation
     system_text = TOOLS_SYSTEM.replace("{profile}", g_state.memory_context or "{}")
     if is_retry:

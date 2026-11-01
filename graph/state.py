@@ -4,10 +4,11 @@ from typing import Annotated, Literal, TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from counting.counting import RetryContext
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
+
+from counting.counting import RetryContext
 
 
 class Router_state(TypedDict):
