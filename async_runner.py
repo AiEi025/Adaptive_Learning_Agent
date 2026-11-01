@@ -74,12 +74,32 @@ class AsyncRunner:
             raise TimeoutError(f"اجرای عملیات بیش از {timeout} ثانیه طول کشید") from None
 
     def close(self):
-        """توقف loop (معمولاً لازم نیست؛ thread از نوع daemon است)."""
+        """توقف امن loop و بستن منابع async."""
+
         if self._graph_pool is not None:
             try:
                 self.run(self._graph_pool.close(), timeout=10)
             except Exception:
                 logger.exception("closing graph pool failed")
+    
+        async def shutdown_async_tasks():
+            current_task = asyncio.current_task()
+            pending = [
+                task for task in asyncio.all_tasks()
+                if task is not current_task and not task.done()
+            ]
+    
+            for task in pending:
+                task.cancel()
+    
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+    
+        try:
+            self.run(shutdown_async_tasks(), timeout=10)
+        except Exception:
+            logger.exception("async task shutdown failed")
+    
         self.loop.call_soon_threadsafe(self.loop.stop)
         self._thread.join(timeout=5)
 
